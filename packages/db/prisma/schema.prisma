@@ -1,0 +1,180 @@
+// Supabase (PostgreSQL) with pgvector extension
+// RLS policies should be applied separately via Supabase SQL editor
+// to enforce tenantId at the database level as a safety net.
+// Prisma middleware (see src/middleware.ts) is the primary isolation mechanism.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector", schema: "extensions")]
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  slug           String   @unique
+  allowedDomains String[] // CORS: widget API validates Origin against this list
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users              User[]
+  chatbots           Chatbot[]
+  embeddingDocuments EmbeddingDocument[]
+  demoLinks          DemoLink[]
+  subscriptions      Subscription[]
+  messages           Message[]
+  usageLogs          UsageLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  email     String   @unique
+  password  String   // bcrypt hash
+  role      Role     @default(CLIENT)
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Chatbot {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+  name         String
+  systemPrompt String   @db.Text
+  tone         String   @default("professional")
+  leadCapture  Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  embeddingDocuments EmbeddingDocument[]
+  demoLinks          DemoLink[]
+  messages           Message[]
+  usageLogs          UsageLog[]
+
+  @@index([tenantId])
+  @@map("chatbots")
+}
+
+model EmbeddingDocument {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  chatbotId   String   @db.Uuid
+  content     String   @db.Text
+  // pgvector column — text-embedding-3-small produces 1536-dimensional vectors
+  embedding   Unsupported("vector(1536)")?
+  sourceUrl   String
+  contentHash String   // SHA-256 of content; skip re-embedding if unchanged
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([chatbotId])
+  @@map("embedding_documents")
+}
+
+model DemoLink {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  chatbotId String   @db.Uuid
+  token     String   @unique @default(dbgenerated("gen_random_uuid()"))
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([token])
+  @@map("demo_links")
+}
+
+model Subscription {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String             @db.Uuid
+  stripeCustomerId     String?
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  status               SubscriptionStatus @default(TRIALING)
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+  canceledAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("subscriptions")
+}
+
+model Message {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  chatbotId String   @db.Uuid
+  sessionId String   // groups messages in a conversation
+  role      String   // "user" | "assistant"
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([chatbotId])
+  @@index([sessionId])
+  @@map("messages")
+}
+
+model UsageLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @db.Uuid
+  chatbotId  String   @db.Uuid
+  tokensUsed Int      @default(0)
+  costUsd    Decimal  @default(0) @db.Decimal(10, 6)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([chatbotId])
+  @@map("usage_logs")
+}
