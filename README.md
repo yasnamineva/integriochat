@@ -97,6 +97,6 @@ Every database record carries a `tenantId`. Isolation is enforced at two layers:
 
 ## Docs
 
-- [Running the project](docs/RUNNING.md)
+- [Local dev setup & production deployment](docs/RUNNING.md)
 - [Testing](docs/TESTING.md)
 - [What's not yet implemented](docs/TODO.md)
