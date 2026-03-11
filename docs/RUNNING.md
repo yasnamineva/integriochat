@@ -38,11 +38,9 @@ docker run -d \
 To stop it: `docker stop integriochat-db`
 To start it again later: `docker start integriochat-db`
 
-### 3. Create the env files
+### 3. Create the env file
 
-Two env files are needed — one for the Next.js app and one for Prisma migrations, which run from `packages/db` and can't see `apps/web/.env.local`.
-
-**`apps/web/.env.local`** (used by the running app):
+Create a single **`.env` at the repo root** (copy-paste as-is, no accounts needed):
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
@@ -52,14 +50,7 @@ NEXTAUTH_URL=http://localhost:3000
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
 ```
 
-**`packages/db/.env`** (used by Prisma CLI for migrations and `db:generate`):
-
-```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
-DIRECT_URL=postgresql://postgres:postgres@localhost:5432/postgres
-```
-
-> Both files are gitignored — they will never be committed.
+This one file is read by both the Next.js app and the Prisma CLI — `dotenv-cli` loads it before every command. It is gitignored and will never be committed.
 
 ### 4. Apply the database schema
 
