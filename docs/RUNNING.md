@@ -40,7 +40,7 @@ To start it again later: `docker start integriochat-db`
 
 ### 3. Create the env file
 
-Create `apps/web/.env.local` with these values (copy-paste as-is):
+Create `apps/web/.env.local` with these values (copy-paste as-is, no accounts needed):
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
@@ -63,6 +63,10 @@ The database is empty after migration. Insert a test user so you can log in:
 
 ```bash
 docker exec -it integriochat-db psql -U postgres -c "
+INSERT INTO \"Tenant\" (id, name, slug, \"allowedDomains\", \"createdAt\", \"updatedAt\")
+VALUES (gen_random_uuid(), 'Demo Tenant', 'demo', '{}', now(), now());"
+
+docker exec -it integriochat-db psql -U postgres -c "
 INSERT INTO \"User\" (id, email, password, name, role, \"tenantId\", \"createdAt\", \"updatedAt\")
 VALUES (
   gen_random_uuid(),
@@ -72,17 +76,10 @@ VALUES (
   'ADMIN',
   (SELECT id FROM \"Tenant\" LIMIT 1),
   now(), now()
-) ON CONFLICT DO NOTHING;"
+);"
 ```
 
 > The hashed password above is `password`. Change it before sharing the database with anyone.
->
-> If no tenant exists yet, create one first:
-> ```bash
-> docker exec -it integriochat-db psql -U postgres -c "
-> INSERT INTO \"Tenant\" (id, name, slug, \"allowedDomains\", \"createdAt\", \"updatedAt\")
-> VALUES (gen_random_uuid(), 'Demo Tenant', 'demo', '{}', now(), now());"
-> ```
 
 ### 6. Start the dev server
 
@@ -92,114 +89,159 @@ pnpm --filter web dev
 
 Open [http://localhost:3000](http://localhost:3000). Log in with `admin@example.com` / `password`.
 
-### 7. Build and watch the widget (optional)
+### 7. Build the widget (optional)
 
 Only needed if you are working on the embeddable widget:
 
 ```bash
 pnpm --filter widget build
-# or, to rebuild on every change:
-pnpm --filter widget dev
-```
-
-Copy the output to the public folder so Next.js serves it:
-
-```bash
 cp apps/widget/dist/widget.js apps/web/public/widget.js
 ```
+
+To rebuild on every change: `pnpm --filter widget dev`
 
 ---
 
 ## Production (Vercel)
 
-All external services are required for production.
+You need accounts on four services. Each section below says exactly where to sign up, where to find the value, and which env var it maps to.
 
-### Services to set up
+### Service 1 — Supabase (database)
 
-| Service | Purpose | Free tier |
-|---|---|---|
-| [Supabase](https://supabase.com) | PostgreSQL + pgvector | Yes |
-| [OpenAI](https://platform.openai.com) | Embeddings + chat | Pay-as-you-go |
-| [Stripe](https://dashboard.stripe.com) | Subscriptions | Test mode free |
-| [Upstash](https://console.upstash.com) | Redis rate limiting | Yes |
+**Sign up:** https://supabase.com → New project (free tier is fine)
 
-### 1. Supabase
+After the project finishes provisioning:
 
-1. Create a new project.
-2. In **Settings → Database**, find the connection strings:
-   - **Connection pooling** URL (port 6543) → `DATABASE_URL`
-   - **Direct connection** URL (port 5432) → `DIRECT_URL`
-3. In the **SQL Editor**, enable pgvector:
+1. Go to **Project Settings → Database**.
+2. Scroll to **Connection string**.
+3. Select the **URI** tab.
+   - Switch the dropdown to **Connection pooling** (port 6543) — copy this as `DATABASE_URL`. Append `?pgbouncer=true` to the end if it is not already there.
+   - Switch the dropdown to **Direct connection** (port 5432) — copy this as `DIRECT_URL`.
+
+Both strings look like:
+```
+postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+```
+
+4. In the **SQL Editor** (left sidebar), run this once to enable vector search:
    ```sql
    create extension if not exists vector with schema extensions;
    ```
 
-### 2. OpenAI
+> **`DATABASE_URL`** — pooled connection, used at runtime by the app
+> **`DIRECT_URL`** — direct connection, used only by Prisma migrations
 
-Create an API key at https://platform.openai.com/api-keys → `OPENAI_API_KEY`.
+---
 
-### 3. Stripe
+### Service 2 — OpenAI (AI responses and embeddings)
 
-1. In test mode, find your secret key at **Developers → API keys** → `STRIPE_SECRET_KEY`.
-2. Create a webhook endpoint pointing to `https://your-domain.com/api/stripe/webhook`.
-3. Subscribe to these events: `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`.
-4. Copy the signing secret → `STRIPE_WEBHOOK_SECRET`.
+**Sign up:** https://platform.openai.com/signup
 
-When you are ready to go live, repeat with live-mode keys and update the env vars.
+1. Once logged in, go to **API keys** in the left sidebar (or https://platform.openai.com/api-keys).
+2. Click **Create new secret key**.
+3. Copy the key immediately — it is only shown once.
 
-### 4. Upstash Redis
+> **`OPENAI_API_KEY`** — starts with `sk-proj-...`
 
-Create a Redis database at https://console.upstash.com → copy **REST URL** and **REST Token**.
+You will need to add a payment method under **Settings → Billing** before the key will work. There is no free tier but costs are very low for development (fractions of a cent per request).
 
-### 5. Environment variables
+---
 
-Add all of the following to your Vercel project (**Settings → Environment Variables**):
+### Service 3 — Stripe (billing)
 
-```env
-# Database (Supabase)
-DATABASE_URL=postgresql://postgres:[password]@db.[ref].supabase.co:6543/postgres?pgbouncer=true
-DIRECT_URL=postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres
+**Sign up:** https://dashboard.stripe.com/register
 
-# OpenAI
-OPENAI_API_KEY=sk-...
+Stripe starts you in **test mode** — no real money moves. Use test mode for development and staging.
 
-# Stripe
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+#### Secret key (`STRIPE_SECRET_KEY`)
 
-# NextAuth
-NEXTAUTH_SECRET=<output of: openssl rand -base64 32>
-NEXTAUTH_URL=https://your-production-domain.com
+1. In the Stripe dashboard, make sure the **Test mode** toggle (top-right) is on.
+2. Go to **Developers → API keys**.
+3. Copy the **Secret key** (starts with `sk_test_...`).
 
-# App
-NEXT_PUBLIC_BASE_URL=https://your-production-domain.com
+> **`STRIPE_SECRET_KEY`** — `sk_test_...` for test, `sk_live_...` for production
 
-# Upstash Redis
-UPSTASH_REDIS_REST_URL=https://...upstash.io
-UPSTASH_REDIS_REST_TOKEN=...
-```
+#### Webhook secret (`STRIPE_WEBHOOK_SECRET`)
 
-### 6. Deploy to Vercel
+1. Go to **Developers → Webhooks**.
+2. Click **Add endpoint**.
+3. Set the endpoint URL to `https://your-domain.com/api/stripe/webhook`.
+4. Under **Select events**, add these four:
+   - `checkout.session.completed`
+   - `invoice.paid`
+   - `invoice.payment_failed`
+   - `customer.subscription.deleted`
+5. Click **Add endpoint**.
+6. On the endpoint detail page, click **Reveal** under **Signing secret**.
 
-1. Import the repo at https://vercel.com/new.
-2. Set the **Root Directory** to `apps/web`.
-3. Vercel will detect Next.js automatically — no framework config changes needed.
-4. Add the environment variables from step 5.
-5. Add a **Build Command** override so the widget is bundled and served:
+> **`STRIPE_WEBHOOK_SECRET`** — starts with `whsec_...`
+
+When you go live, switch the dashboard out of test mode and repeat steps 1–6 with live-mode keys.
+
+---
+
+### Service 4 — Upstash (rate limiting)
+
+**Sign up:** https://console.upstash.com (free tier, no credit card)
+
+1. Click **Create Database**.
+2. Choose **Redis**, give it a name, pick the region closest to your Vercel deployment.
+3. Click **Create**.
+4. On the database detail page, scroll to **REST API**.
+5. Copy the **UPSTASH_REDIS_REST_URL** and **UPSTASH_REDIS_REST_TOKEN** values shown there.
+
+> **`UPSTASH_REDIS_REST_URL`** — `https://...upstash.io`
+> **`UPSTASH_REDIS_REST_TOKEN`** — long alphanumeric token
+
+---
+
+### Service 5 — Vercel (hosting)
+
+**Sign up:** https://vercel.com/signup (free tier)
+
+1. Click **Add New → Project**.
+2. Import your GitHub repo (`yasnamineva/integriochat`).
+3. Set **Root Directory** to `apps/web`.
+4. Expand **Environment Variables** and add every variable from the table below.
+5. Under **Build & Development Settings**, override the **Build Command** to:
    ```
    cd ../.. && pnpm --filter widget build && cp apps/widget/dist/widget.js apps/web/public/widget.js && cd apps/web && next build
    ```
 6. Click **Deploy**.
 
-### 7. Apply migrations in production
+After the first deploy, copy the auto-generated `.vercel.app` domain and set it as both `NEXTAUTH_URL` and `NEXT_PUBLIC_BASE_URL`, then redeploy.
 
-Run this once after the first deploy (and after any schema changes):
+---
+
+### Full environment variable reference
+
+| Variable | Where to get it | Example value |
+|---|---|---|
+| `DATABASE_URL` | Supabase → Settings → Database → Connection pooling URI | `postgresql://postgres.[ref]:[pw]@...supabase.com:6543/postgres?pgbouncer=true` |
+| `DIRECT_URL` | Supabase → Settings → Database → Direct connection URI | `postgresql://postgres.[ref]:[pw]@...supabase.com:5432/postgres` |
+| `OPENAI_API_KEY` | platform.openai.com/api-keys → Create new secret key | `sk-proj-...` |
+| `STRIPE_SECRET_KEY` | Stripe dashboard → Developers → API keys → Secret key | `sk_test_...` |
+| `STRIPE_WEBHOOK_SECRET` | Stripe dashboard → Developers → Webhooks → endpoint → Signing secret | `whsec_...` |
+| `NEXTAUTH_SECRET` | Generate locally: `openssl rand -base64 32` | `s3cr3t...` |
+| `NEXTAUTH_URL` | Your production domain | `https://integriochat.vercel.app` |
+| `NEXT_PUBLIC_BASE_URL` | Same as `NEXTAUTH_URL` | `https://integriochat.vercel.app` |
+| `UPSTASH_REDIS_REST_URL` | Upstash console → database → REST API section | `https://...upstash.io` |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash console → database → REST API section | `AX4A...` |
+
+---
+
+### Apply migrations in production
+
+Run once after first deploy, and again after any schema change:
 
 ```bash
 pnpm db:migrate
 ```
 
-Or trigger it automatically by adding `pnpm db:migrate &&` before the build command in Vercel.
+Or prepend it to the Vercel build command so it runs automatically on every deploy:
+```
+pnpm db:migrate && cd ../.. && pnpm --filter widget build && ...
+```
 
 ---
 
@@ -226,7 +268,7 @@ Run from the repo root unless noted.
 
 ## Local Stripe webhooks (optional)
 
-To test Stripe events locally, install the [Stripe CLI](https://stripe.com/docs/stripe-cli) and forward webhooks to your dev server:
+To test Stripe events on your local machine, install the Stripe CLI and forward events to your dev server:
 
 ```bash
 brew install stripe/stripe-cli/stripe
