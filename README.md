@@ -1,4 +1,4 @@
-# AI Chatbot SaaS Platform
+# Integriochat
 
 A multi-tenant SaaS platform that lets you create, deploy, and monetise AI-powered chatbots for small businesses.
 

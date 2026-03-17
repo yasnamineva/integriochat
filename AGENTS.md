@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Name
-AI Chatbot SaaS Platform for Small Businesses
+Integriochat
 
 ---
 

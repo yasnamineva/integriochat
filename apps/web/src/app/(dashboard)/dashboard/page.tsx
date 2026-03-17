@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth.js";
-import { prisma } from "@/lib/db.js";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { Card, CardHeader, CardTitle, Badge } from "@integriochat/ui";
 
 export default async function DashboardPage() {

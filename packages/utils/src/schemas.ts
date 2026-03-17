@@ -46,6 +46,13 @@ export const LoginSchema = z.object({
   password: z.string().min(8),
 });
 
+export const RegisterSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(1).max(100).optional(),
+  companyName: z.string().min(1).max(100),
+});
+
 // ─── Stripe Webhook ───────────────────────────────────────────────────────────
 
 /** Raw body is a Buffer; signature verified before parsing. */
@@ -62,3 +69,4 @@ export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 export type CreateDemoLink = z.infer<typeof CreateDemoLinkSchema>;
 export type CreateTenant = z.infer<typeof CreateTenantSchema>;
 export type Login = z.infer<typeof LoginSchema>;
+export type Register = z.infer<typeof RegisterSchema>;

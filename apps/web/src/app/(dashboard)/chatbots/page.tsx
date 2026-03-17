@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth.js";
-import { prisma } from "@/lib/db.js";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { Card, Badge, Button } from "@integriochat/ui";
 
 export default async function ChatbotsPage() {
@@ -20,7 +20,7 @@ export default async function ChatbotsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Chatbots</h1>
-        <Link href="/dashboard/chatbots/new">
+        <Link href="/chatbots/new">
           <Button size="sm">New Chatbot</Button>
         </Link>
       </div>
@@ -29,7 +29,7 @@ export default async function ChatbotsPage() {
         <Card>
           <p className="text-center text-gray-500">
             No chatbots yet.{" "}
-            <Link href="/dashboard/chatbots/new" className="text-brand-600 underline">
+            <Link href="/chatbots/new" className="text-brand-600 underline">
               Create your first one.
             </Link>
           </p>
@@ -37,7 +37,7 @@ export default async function ChatbotsPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {chatbots.map((bot) => (
-            <Link key={bot.id} href={`/dashboard/chatbots/${bot.id}`}>
+            <Link key={bot.id} href={`/chatbots/${bot.id}`}>
               <Card className="cursor-pointer transition-shadow hover:shadow-md">
                 <div className="flex items-center justify-between">
                   <div>

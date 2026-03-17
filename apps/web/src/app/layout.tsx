@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { SessionProvider } from "@/components/SessionProvider.js";
+import { SessionProvider } from "@/components/SessionProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Chatbot SaaS",
+  title: "Integriochat",
   description: "AI-powered chatbots for small businesses",
 };
 

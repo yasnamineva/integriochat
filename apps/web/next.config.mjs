@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   // Transpile local workspace packages
   transpilePackages: ["@integriochat/ui", "@integriochat/utils", "@integriochat/db"],
 

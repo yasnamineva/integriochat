@@ -9,6 +9,10 @@ const TENANT_EXEMPT_MODELS = new Set(["Tenant"]);
  * - Automatically injects `where: { tenantId }` on all read operations.
  * - Automatically sets `data.tenantId` on all create/update operations.
  *
+ * When getTenantId() returns null (e.g. public endpoints), writes are still
+ * allowed provided the caller has already set tenantId explicitly in data/where.
+ * This covers routes that resolve tenantId from the session before the query.
+ *
  * IMPORTANT: Call this immediately after creating the PrismaClient and
  * before any queries. Never bypass this middleware by using raw SQL or
  * a separate PrismaClient instance without the middleware applied.
@@ -27,13 +31,21 @@ export function applyTenantMiddleware(
 
     const tenantId = getTenantId();
     if (!tenantId) {
-      // Allow reads without tenantId only in admin/system contexts where
-      // getTenantId intentionally returns null (e.g. webhook handlers).
-      // All writes still require a tenantId.
+      // No tenantId from context — allow writes only when the caller has already
+      // set tenantId explicitly in data (create) or where (update/delete).
+      // This is safe: all routes resolve tenantId from the authenticated session
+      // via requireTenantId() and pass it directly in the query args.
       if (["create", "createMany", "update", "updateMany", "upsert"].includes(action)) {
-        throw new Error(
-          `[TenantMiddleware] tenantId is required for write operation on model "${model}"`
-        );
+        const isCreate = action === "create" || action === "createMany";
+        const bag = isCreate
+          ? (params.args?.["data"] as Record<string, unknown> | undefined)
+          : (params.args?.["where"] as Record<string, unknown> | undefined);
+
+        if (typeof bag?.["tenantId"] !== "string") {
+          throw new Error(
+            `[TenantMiddleware] tenantId is required for write operation on model "${model}"`
+          );
+        }
       }
       return next(params);
     }

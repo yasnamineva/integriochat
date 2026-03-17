@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { prisma, requireTenantId } from "@/lib/db.js";
+import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 import { UpdateChatbotSchema } from "@integriochat/utils";
 
@@ -49,7 +49,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     );
 
     const updated = await prisma.chatbot.update({
-      where: { id: params.id },
+      where: { id: params.id, tenantId },
       data: updateData,
     });
 
@@ -73,7 +73,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     });
     if (!existing) return err("Chatbot not found", 404);
 
-    await prisma.chatbot.delete({ where: { id: params.id } });
+    await prisma.chatbot.delete({ where: { id: params.id, tenantId } });
 
     return ok({ deleted: true });
   } catch (e) {

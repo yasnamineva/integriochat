@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import type { ReactNode } from "react";
-import { authOptions } from "@/lib/auth.js";
-import { Sidebar } from "@/components/Sidebar.js";
+import { authOptions } from "@/lib/auth";
+import { Sidebar } from "@/components/Sidebar";
 
 /** Auth guard for all /dashboard/* routes */
 export default async function DashboardLayout({ children }: { children: ReactNode }) {

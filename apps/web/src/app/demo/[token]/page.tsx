@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db.js";
+import { prisma } from "@/lib/db";
 
 interface Props {
   params: { token: string };

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { ApiResponse } from "./types.js";
+import type { ApiResponse } from "./types";
 
 /** Returns a successful JSON response: `{ success: true, data }` */
 export function ok<T>(data: T, status = 200): NextResponse<ApiResponse<T>> {

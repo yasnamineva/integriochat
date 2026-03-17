@@ -3,29 +3,22 @@
  *
  * Import this (not the raw prisma from @integriochat/db) in API routes and services
  * to ensure all queries are automatically scoped to the current tenant.
+ *
+ * The middleware's getTenantId getter returns null because Prisma's $use callbacks
+ * run inside their own async resource scope and do not inherit AsyncLocalStorage
+ * values set on the calling context. Routes therefore pass tenantId explicitly in
+ * all query args; the middleware enforces this and still injects it when available.
  */
 import { prisma, applyTenantMiddleware } from "@integriochat/db";
 import { getServerSession } from "next-auth";
-import { authOptions } from "./auth.js";
+import { authOptions } from "./auth";
 
-// Apply middleware once at module load time.
-// getTenantId is called lazily on each query.
-applyTenantMiddleware(prisma, () => {
-  // This runs synchronously inside a Prisma middleware — we can't await here.
-  // For request-scoped tenantId, callers should use `getDb(tenantId)` below
-  // when they already have the tenantId resolved.
-  return null; // fallback: no tenant filter (safe for admin-only operations)
-});
+applyTenantMiddleware(prisma, () => null);
 
 export { prisma };
 
 /**
- * Returns a Prisma client pre-scoped to a specific tenantId.
- * Use this in API routes after resolving the session tenantId.
- *
- * NOTE: This creates a closure-based scope; it does NOT create a new client.
- * The middleware uses the tenantId provided at call time for all queries
- * within the same synchronous stack frame (server-side Next.js request).
+ * Returns the tenantId from the current session, or null if unauthenticated.
  */
 export async function getTenantId(): Promise<string | null> {
   const session = await getServerSession(authOptions);

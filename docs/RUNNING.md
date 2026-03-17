@@ -54,7 +54,14 @@ This one file is read by both the Next.js app and the Prisma CLI — `dotenv-cli
 
 ### 4. Apply the database schema
 
+The migration uses a Supabase-style `extensions` schema for pgvector. On local Docker you must create that schema, install the extension, and add it to the search path before migrating:
+
 ```bash
+docker exec -it integriochat-db psql -U postgres -c "
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS vector SCHEMA extensions;
+ALTER DATABASE postgres SET search_path TO public, extensions;"
+
 pnpm db:generate
 pnpm db:migrate
 ```
@@ -65,18 +72,18 @@ The database is empty after migration. Insert a test user so you can log in:
 
 ```bash
 docker exec -it integriochat-db psql -U postgres -c "
-INSERT INTO \"Tenant\" (id, name, slug, \"allowedDomains\", \"createdAt\", \"updatedAt\")
+INSERT INTO \"tenants\" (id, name, slug, \"allowedDomains\", \"createdAt\", \"updatedAt\")
 VALUES (gen_random_uuid(), 'Demo Tenant', 'demo', '{}', now(), now());"
 
 docker exec -it integriochat-db psql -U postgres -c "
-INSERT INTO \"User\" (id, email, password, name, role, \"tenantId\", \"createdAt\", \"updatedAt\")
+INSERT INTO \"users\" (id, email, password, name, role, \"tenantId\", \"createdAt\", \"updatedAt\")
 VALUES (
   gen_random_uuid(),
-  'admin@example.com',
+  'ç',
   '\$2b\$10\$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
   'Admin',
   'ADMIN',
-  (SELECT id FROM \"Tenant\" LIMIT 1),
+  (SELECT id FROM \"tenants\" LIMIT 1),
   now(), now()
 );"
 ```

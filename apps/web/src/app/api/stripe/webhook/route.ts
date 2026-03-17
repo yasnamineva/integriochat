@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import Stripe from "stripe";
-// TODO: import { prisma } from "@/lib/db.js"; — needed when implementing webhook handlers
+// TODO: import { prisma } from "@/lib/db"; — needed when implementing webhook handlers
 
 /**
  * POST /api/stripe/webhook

@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { prisma } from "@/lib/db.js";
+import { prisma } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 
 interface Params {

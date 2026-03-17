@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { prisma, requireTenantId } from "@/lib/db.js";
+import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 import { CreateChatbotSchema } from "@integriochat/utils";
 

@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { prisma } from "@/lib/db.js";
+import { prisma } from "@/lib/db";
 import { err } from "@integriochat/utils";
 import { ChatMessageSchema } from "@integriochat/utils";
 
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     if (!chatbot) {
       return err("Chatbot not found", 404);
     }
+
 
     // Check subscription status — only active/trialing tenants can use chat
     const subscription = chatbot.tenant.subscriptions[0];
