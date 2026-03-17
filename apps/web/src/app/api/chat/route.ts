@@ -1,17 +1,16 @@
 import { type NextRequest } from "next/server";
+import OpenAI from "openai";
+import { OpenAIStream, StreamingTextResponse } from "ai";
 import { prisma } from "@/lib/db";
 import { err } from "@integriochat/utils";
 import { ChatMessageSchema } from "@integriochat/utils";
+import { retrieveContext } from "@/services/embedding.service";
 
 /**
  * POST /api/chat
  *
  * Streams an AI response for an embedded chatbot.
  * Public endpoint — authenticated via chatbotId + validated Origin header.
- *
- * TODO: Replace stub stream with actual OpenAI streaming via Vercel AI SDK.
- * TODO: Add Upstash rate limiting before processing.
- * TODO: Perform pgvector similarity search for relevant context chunks.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -23,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     const { chatbotId, sessionId, message } = parsed.data;
 
-    // Validate chatbot exists and subscription allows access
+    // ── Validate chatbot + subscription ──────────────────────────────────────
     const chatbot = await prisma.chatbot.findFirst({
       where: { id: chatbotId, isActive: true },
       include: {
@@ -38,12 +37,8 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    if (!chatbot) {
-      return err("Chatbot not found", 404);
-    }
+    if (!chatbot) return err("Chatbot not found", 404);
 
-
-    // Check subscription status — only active/trialing tenants can use chat
     const subscription = chatbot.tenant.subscriptions[0];
     if (
       !subscription ||
@@ -52,57 +47,84 @@ export async function POST(req: NextRequest) {
       return err("Subscription inactive", 403);
     }
 
-    // Validate CORS origin against tenant's allowed domains
+    // ── CORS: validate Origin against tenant's allowed domains ───────────────
     const origin = req.headers.get("origin") ?? "";
     const allowedDomains = chatbot.tenant.allowedDomains;
     if (allowedDomains.length > 0 && !allowedDomains.some((d) => origin.includes(d))) {
       return err("Origin not allowed", 403);
     }
 
-    // Log the incoming user message
+    // ── Log user message ─────────────────────────────────────────────────────
     await prisma.message.create({
       data: {
         tenantId: chatbot.tenantId,
         chatbotId,
         sessionId,
         role: "user",
-        content: message, // stored as-is; never interpolated into system prompt
+        content: message,
       },
     });
 
-    // TODO: Retrieve top-k relevant chunks from pgvector using cosine similarity
-    // const context = await retrieveContext(chatbotId, message);
+    // ── Fetch conversation history (last 10 turns before this message) ───────
+    const allPrev = await prisma.message.findMany({
+      where: { chatbotId, sessionId },
+      orderBy: { createdAt: "asc" },
+      select: { role: true, content: true },
+    });
+    // Drop the message we just inserted (last item) — it's passed explicitly below
+    const history = allPrev.slice(0, -1).slice(-10);
 
-    // TODO: Build prompt with system prompt + context + conversation history
-    // SECURITY: System prompt and user input are kept strictly separate — never
-    // interpolate user content into the system prompt string.
+    // ── RAG: retrieve relevant context chunks from pgvector ──────────────────
+    const chunks = await retrieveContext(chatbot.id, chatbot.tenantId, message);
 
-    // TODO: Stream response using Vercel AI SDK + OpenAI
-    // const result = await streamText({
-    //   model: openai("gpt-4o-mini"),
-    //   system: chatbot.systemPrompt,  // ← separate from user message
-    //   messages: [{ role: "user", content: message }],
-    // });
-    // return result.toDataStreamResponse();
+    // ── Build system content ─────────────────────────────────────────────────
+    // SECURITY: user input is NEVER interpolated into the system prompt.
+    // It is always passed as a separate "user" message entry.
+    let systemContent = chatbot.systemPrompt;
+    if (chunks.length > 0) {
+      const contextBlock = chunks
+        .map((c, i) => `[${i + 1}] (source: ${c.sourceUrl})\n${c.content}`)
+        .join("\n\n");
+      systemContent +=
+        "\n\n---\nUse the following knowledge base excerpts to answer the user's question. " +
+        "If the answer isn't in the excerpts, rely on your general knowledge.\n\n" +
+        contextBlock;
+    }
 
-    // ── STUB RESPONSE (replace with real AI stream) ──────────────────────────
-    const stubReply = `[STUB] This is a placeholder response for chatbot "${chatbot.name}". OpenAI integration is pending.`;
+    // ── Stream via OpenAI ────────────────────────────────────────────────────
+    const openai = new OpenAI();
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      stream: true,
+      messages: [
+        { role: "system", content: systemContent },
+        ...history.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+        { role: "user", content: message },
+      ],
+    });
 
-    // Log the stub assistant message
-    await prisma.message.create({
-      data: {
-        tenantId: chatbot.tenantId,
-        chatbotId,
-        sessionId,
-        role: "assistant",
-        content: stubReply,
+    const stream = OpenAIStream(completion, {
+      async onFinal(assistantReply) {
+        try {
+          await prisma.message.create({
+            data: {
+              tenantId: chatbot.tenantId,
+              chatbotId,
+              sessionId,
+              role: "assistant",
+              content: assistantReply,
+            },
+          });
+        } catch (e) {
+          console.error("[POST /api/chat] failed to log assistant message", e);
+        }
       },
     });
 
-    return new Response(
-      JSON.stringify({ success: true, data: { reply: stubReply } }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+    return new StreamingTextResponse(stream);
   } catch (e) {
     console.error("[POST /api/chat]", e);
     return err("Internal server error", 500);

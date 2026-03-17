@@ -43,6 +43,23 @@ async function main() {
   });
 
   console.log(`User: ${user.email} (${user.id})`);
+
+  // Upsert a TRIALING subscription so the chat endpoint works in dev
+  const trialEndsAt = new Date();
+  trialEndsAt.setDate(trialEndsAt.getDate() + 30);
+
+  const existingSub = await prisma.subscription.findFirst({
+    where: { tenantId: tenant.id },
+  });
+  if (!existingSub) {
+    await prisma.subscription.create({
+      data: { tenantId: tenant.id, status: "TRIALING", trialEndsAt },
+    });
+    console.log("Subscription: TRIALING (30 days)");
+  } else {
+    console.log(`Subscription: ${existingSub.status} (already exists)`);
+  }
+
   console.log("\nLogin credentials:");
   console.log("  Email:    admin@demo.com");
   console.log("  Password: password123");
