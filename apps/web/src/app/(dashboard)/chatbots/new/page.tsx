@@ -15,11 +15,13 @@ export default function NewChatbotPage() {
     setLoading(true);
 
     const form = new FormData(e.currentTarget);
+    const websiteUrlRaw = (form.get("websiteUrl") as string).trim();
     const body = {
       name: form.get("name") as string,
       systemPrompt: form.get("systemPrompt") as string,
       tone: form.get("tone") as string,
       leadCapture: form.get("leadCapture") === "on",
+      ...(websiteUrlRaw ? { websiteUrl: websiteUrlRaw } : {}),
     };
 
     const res = await fetch("/api/chatbots", {
@@ -75,6 +77,13 @@ export default function NewChatbotPage() {
               <option value="casual">Casual</option>
               <option value="formal">Formal</option>
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Website URL <span className="font-normal text-gray-400">(optional — we will train the bot on your site)</span>
+            </label>
+            <Input name="websiteUrl" type="url" placeholder="https://yourcompany.com" />
           </div>
 
           <div className="flex items-center gap-2">

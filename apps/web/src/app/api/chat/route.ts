@@ -48,9 +48,15 @@ export async function POST(req: NextRequest) {
     }
 
     // ── CORS: validate Origin against tenant's allowed domains ───────────────
+    // Also allow requests from our own domain (e.g. demo pages, dashboard preview).
     const origin = req.headers.get("origin") ?? "";
+    const ownOrigin = process.env["NEXT_PUBLIC_BASE_URL"] ?? "http://localhost:3000";
     const allowedDomains = chatbot.tenant.allowedDomains;
-    if (allowedDomains.length > 0 && !allowedDomains.some((d) => origin.includes(d))) {
+    const originAllowed =
+      allowedDomains.length === 0 ||
+      origin === ownOrigin ||
+      allowedDomains.some((d) => origin.includes(d));
+    if (!originAllowed) {
       return err("Origin not allowed", 403);
     }
 
@@ -77,10 +83,27 @@ export async function POST(req: NextRequest) {
     // ── RAG: retrieve relevant context chunks from pgvector ──────────────────
     const chunks = await retrieveContext(chatbot.id, chatbot.tenantId, message);
 
+    // ── Custom Q&A pairs (highest priority — prepended before website content) ─
+    const customQAs = await prisma.customQA.findMany({
+      where: { chatbotId, tenantId: chatbot.tenantId },
+      select: { question: true, answer: true },
+      orderBy: { createdAt: "asc" },
+    });
+
     // ── Build system content ─────────────────────────────────────────────────
     // SECURITY: user input is NEVER interpolated into the system prompt.
     // It is always passed as a separate "user" message entry.
     let systemContent = chatbot.systemPrompt;
+
+    if (customQAs.length > 0) {
+      const qaBlock = customQAs
+        .map((qa) => `Q: ${qa.question}\nA: ${qa.answer}`)
+        .join("\n\n");
+      systemContent +=
+        "\n\n---\nUse the following predetermined answers for common questions (these take priority over other sources):\n\n" +
+        qaBlock;
+    }
+
     if (chunks.length > 0) {
       const contextBlock = chunks
         .map((c, i) => `[${i + 1}] (source: ${c.sourceUrl})\n${c.content}`)

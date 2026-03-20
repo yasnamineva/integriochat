@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       return err(parsed.error.message, 422);
     }
 
-    const { name, systemPrompt, tone, leadCapture } = parsed.data;
+    const { name, systemPrompt, tone, leadCapture, websiteUrl } = parsed.data;
 
     const chatbot = await prisma.chatbot.create({
       data: {
@@ -47,10 +47,9 @@ export async function POST(req: NextRequest) {
         systemPrompt,
         tone,
         leadCapture,
+        websiteUrl,
       },
     });
-
-    // TODO: Trigger embedding generation for initial source URLs (OpenAI)
 
     return ok(chatbot, 201);
   } catch (e) {

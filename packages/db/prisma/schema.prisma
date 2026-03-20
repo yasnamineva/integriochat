@@ -46,6 +46,7 @@ model Tenant {
   subscriptions      Subscription[]
   messages           Message[]
   usageLogs          UsageLog[]
+  customQAs          CustomQA[]
 
   @@map("tenants")
 }
@@ -67,24 +68,46 @@ model User {
 }
 
 model Chatbot {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String   @db.Uuid
-  name         String
-  systemPrompt String   @db.Text
-  tone         String   @default("professional")
-  leadCapture  Boolean  @default(false)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid
+  name          String
+  systemPrompt  String    @db.Text
+  tone          String    @default("professional")
+  leadCapture   Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  // Website training
+  websiteUrl    String?
+  scrapeStatus  String    @default("idle") // idle | scraping | done | error
+  lastScrapedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   embeddingDocuments EmbeddingDocument[]
   demoLinks          DemoLink[]
   messages           Message[]
   usageLogs          UsageLog[]
+  customQAs          CustomQA[]
 
   @@index([tenantId])
   @@map("chatbots")
+}
+
+model CustomQA {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  chatbotId String   @db.Uuid
+  question  String   @db.Text
+  answer    String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([chatbotId])
+  @@map("custom_qas")
 }
 
 model EmbeddingDocument {

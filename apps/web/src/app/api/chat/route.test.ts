@@ -19,6 +19,7 @@ jest.mock("@/lib/db", () => ({
   prisma: {
     chatbot: { findFirst: jest.fn() },
     message: { create: jest.fn(), findMany: jest.fn() },
+    customQA: { findMany: jest.fn() },
   },
 }));
 
@@ -40,6 +41,7 @@ const mockRetrieveContext = retrieveContext as jest.Mock;
 const mockPrisma = prisma as {
   chatbot: { findFirst: jest.Mock };
   message: { create: jest.Mock; findMany: jest.Mock };
+  customQA: { findMany: jest.Mock };
 };
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ beforeEach(() => {
   mockPrisma.chatbot.findFirst.mockResolvedValue(mockChatbot);
   mockPrisma.message.create.mockResolvedValue({});
   mockPrisma.message.findMany.mockResolvedValue([]);
+  mockPrisma.customQA.findMany.mockResolvedValue([]);
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

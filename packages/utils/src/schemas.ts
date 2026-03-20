@@ -7,9 +7,15 @@ export const CreateChatbotSchema = z.object({
   systemPrompt: z.string().min(1).max(4000),
   tone: z.enum(["professional", "friendly", "casual", "formal"]).default("professional"),
   leadCapture: z.boolean().default(false),
+  websiteUrl: z.string().url().optional(),
 });
 
 export const UpdateChatbotSchema = CreateChatbotSchema.partial();
+
+export const CreateCustomQASchema = z.object({
+  question: z.string().min(1).max(500),
+  answer: z.string().min(1).max(4000),
+});
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
@@ -70,3 +76,4 @@ export type CreateDemoLink = z.infer<typeof CreateDemoLinkSchema>;
 export type CreateTenant = z.infer<typeof CreateTenantSchema>;
 export type Login = z.infer<typeof LoginSchema>;
 export type Register = z.infer<typeof RegisterSchema>;
+export type CreateCustomQA = z.infer<typeof CreateCustomQASchema>;
