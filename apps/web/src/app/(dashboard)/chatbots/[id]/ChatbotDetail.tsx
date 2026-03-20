@@ -16,11 +16,14 @@ interface Chatbot {
 interface Props {
   chatbot: Chatbot;
   embedSnippet: string;
+  baseUrl: string;
 }
+
+const DEMO_DURATIONS = [1, 7, 14, 30] as const;
 
 const TONES = ["professional", "friendly", "casual", "formal"] as const;
 
-export function ChatbotDetail({ chatbot: initial, embedSnippet }: Props) {
+export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl }: Props) {
   const router = useRouter();
   const [chatbot, setChatbot] = useState(initial);
   const [editing, setEditing] = useState(false);
@@ -34,6 +37,47 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet }: Props) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Demo link state
+  const [demoDuration, setDemoDuration] = useState<number>(7);
+  const [generatingDemo, setGeneratingDemo] = useState(false);
+  const [demoLink, setDemoLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const [demoCopied, setDemoCopied] = useState(false);
+
+  async function handleGenerateDemo() {
+    setGeneratingDemo(true);
+    setDemoError(null);
+    try {
+      const res = await fetch("/api/demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatbotId: chatbot.id, durationDays: demoDuration }),
+      });
+      const data = await res.json() as { data?: { token: string; expiresAt: string }; error?: string };
+      if (!res.ok) {
+        setDemoError(data.error ?? "Failed to generate demo link");
+        return;
+      }
+      if (data.data) {
+        setDemoLink({
+          url: `${baseUrl}/demo/${data.data.token}`,
+          expiresAt: data.data.expiresAt,
+        });
+      }
+    } catch {
+      setDemoError("Network error — please try again");
+    } finally {
+      setGeneratingDemo(false);
+    }
+  }
+
+  async function handleCopyDemo() {
+    if (!demoLink) return;
+    await navigator.clipboard.writeText(demoLink.url);
+    setDemoCopied(true);
+    setTimeout(() => { setDemoCopied(false); }, 2000);
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -217,6 +261,60 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet }: Props) {
         <pre className="overflow-x-auto rounded-md bg-gray-900 p-4 text-sm text-green-400">
           {embedSnippet}
         </pre>
+      </Card>
+
+      {/* Demo Link */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Demo Link</CardTitle>
+        </CardHeader>
+        <p className="mb-4 text-sm text-gray-500">
+          Generate a shareable link to let others try this chatbot without embedding it.
+        </p>
+
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="demoDuration" className="text-sm font-medium text-gray-700">
+              Expires after
+            </label>
+            <select
+              id="demoDuration"
+              value={demoDuration}
+              onChange={(e) => { setDemoDuration(Number(e.target.value)); setDemoLink(null); }}
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {DEMO_DURATIONS.map((d) => (
+                <option key={d} value={d}>
+                  {d} {d === 1 ? "day" : "days"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-5">
+            <Button onClick={() => { void handleGenerateDemo(); }} loading={generatingDemo}>
+              Generate Demo Link
+            </Button>
+          </div>
+        </div>
+
+        {demoError && (
+          <p className="mt-3 text-sm text-red-600">{demoError}</p>
+        )}
+
+        {demoLink && (
+          <div className="mt-4 flex flex-col gap-2 rounded-md bg-gray-50 p-4">
+            <div className="flex items-center gap-2">
+              <code className="flex-1 overflow-x-auto text-sm text-gray-800">{demoLink.url}</code>
+              <Button size="sm" variant="outline" onClick={() => { void handleCopyDemo(); }}>
+                {demoCopied ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Expires: {new Date(demoLink.expiresAt).toLocaleDateString(undefined, { dateStyle: "medium" })}
+            </p>
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -1,13 +1,29 @@
 import { type NextRequest } from "next/server";
 import Stripe from "stripe";
-// TODO: import { prisma } from "@/lib/db"; — needed when implementing webhook handlers
+import { prisma } from "@/lib/db";
+import type { SubscriptionStatus } from "@integriochat/db";
+
+/** Map Stripe subscription statuses to our DB enum. */
+function toDbStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
+  const map: Partial<Record<Stripe.Subscription.Status, SubscriptionStatus>> = {
+    active: "ACTIVE",
+    trialing: "TRIALING",
+    past_due: "PAST_DUE",
+    canceled: "CANCELED",
+    unpaid: "PAST_DUE",
+    incomplete: "PAST_DUE",
+    incomplete_expired: "CANCELED",
+    paused: "PAST_DUE",
+  };
+  return map[status] ?? "ACTIVE";
+}
 
 /**
  * POST /api/stripe/webhook
  *
- * Handles Stripe webhook events. Signature is verified before any processing.
- *
- * TODO: Implement full handlers for each event type.
+ * All events are verified via the Stripe-Signature header before processing.
+ * tenantId is recovered from session metadata (checkout.session.completed)
+ * or from our DB subscription record (invoice / subscription events).
  */
 export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");
@@ -21,10 +37,10 @@ export async function POST(req: NextRequest) {
   }
 
   let event: Stripe.Event;
+  const stripe = new Stripe(process.env["STRIPE_SECRET_KEY"] ?? "");
 
   try {
     const rawBody = await req.text();
-    const stripe = new Stripe(process.env["STRIPE_SECRET_KEY"] ?? "");
     event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (e) {
     console.error("[Stripe webhook] Signature verification failed:", e);
@@ -36,31 +52,103 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (event.type) {
+      // ── New subscription created via Checkout ─────────────────────────────
       case "checkout.session.completed": {
-        // TODO: Create or update subscription record, set status to ACTIVE/TRIALING
         const session = event.data.object as Stripe.Checkout.Session;
-        console.log("[Stripe] checkout.session.completed", session.id);
+        const tenantId = session.metadata?.["tenantId"];
+        if (!tenantId) {
+          console.error("[Stripe] checkout.session.completed missing tenantId in metadata");
+          break;
+        }
+
+        const stripeSubscriptionId =
+          typeof session.subscription === "string"
+            ? session.subscription
+            : (session.subscription?.id ?? null);
+        const stripeCustomerId =
+          typeof session.customer === "string"
+            ? session.customer
+            : (session.customer?.id ?? null);
+
+        let status: SubscriptionStatus = "ACTIVE";
+        let trialEndsAt: Date | null = null;
+        let currentPeriodEnd: Date | null = null;
+
+        if (stripeSubscriptionId) {
+          const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+          status = toDbStatus(sub.status);
+          trialEndsAt = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
+          currentPeriodEnd = new Date(sub.current_period_end * 1000);
+        }
+
+        // Upsert: update the existing seed/dev subscription or create a new one
+        const existing = await prisma.subscription.findFirst({ where: { tenantId } });
+        if (existing) {
+          await prisma.subscription.update({
+            where: { id: existing.id },
+            data: { status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd },
+          });
+        } else {
+          await prisma.subscription.create({
+            data: { tenantId, status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd },
+          });
+        }
+
+        console.log(`[Stripe] checkout.session.completed — tenant ${tenantId} → ${status}`);
         break;
       }
 
+      // ── Invoice paid → subscription renewed ──────────────────────────────
       case "invoice.paid": {
-        // TODO: Update subscription.currentPeriodEnd, set status to ACTIVE
         const invoice = event.data.object as Stripe.Invoice;
-        console.log("[Stripe] invoice.paid", invoice.id);
+        const stripeSubscriptionId =
+          typeof invoice.subscription === "string"
+            ? invoice.subscription
+            : (invoice.subscription?.id ?? null);
+
+        if (!stripeSubscriptionId) break;
+
+        const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+        const currentPeriodEnd = new Date(sub.current_period_end * 1000);
+
+        await prisma.subscription.update({
+          where: { stripeSubscriptionId },
+          data: { status: "ACTIVE", currentPeriodEnd },
+        });
+
+        console.log(`[Stripe] invoice.paid — ${stripeSubscriptionId} renewed`);
         break;
       }
 
+      // ── Payment failed → mark past due ───────────────────────────────────
       case "invoice.payment_failed": {
-        // TODO: Set subscription status to PAST_DUE, notify tenant
         const invoice = event.data.object as Stripe.Invoice;
-        console.log("[Stripe] invoice.payment_failed", invoice.id);
+        const stripeSubscriptionId =
+          typeof invoice.subscription === "string"
+            ? invoice.subscription
+            : (invoice.subscription?.id ?? null);
+
+        if (!stripeSubscriptionId) break;
+
+        await prisma.subscription.update({
+          where: { stripeSubscriptionId },
+          data: { status: "PAST_DUE" },
+        });
+
+        console.log(`[Stripe] invoice.payment_failed — ${stripeSubscriptionId} → PAST_DUE`);
         break;
       }
 
+      // ── Subscription canceled ─────────────────────────────────────────────
       case "customer.subscription.deleted": {
-        // TODO: Set subscription status to CANCELED, disable chatbots
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log("[Stripe] customer.subscription.deleted", subscription.id);
+        const sub = event.data.object as Stripe.Subscription;
+
+        await prisma.subscription.update({
+          where: { stripeSubscriptionId: sub.id },
+          data: { status: "CANCELED", canceledAt: new Date() },
+        });
+
+        console.log(`[Stripe] customer.subscription.deleted — ${sub.id} → CANCELED`);
         break;
       }
 

@@ -1,7 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { Card, CardHeader, CardTitle, Badge, Button } from "@integriochat/ui";
+import { Card, CardHeader, CardTitle, Badge } from "@integriochat/ui";
+import { CheckoutButton } from "@/components/CheckoutButton";
 
 const statusVariant = {
   TRIALING: "info",
@@ -10,7 +11,11 @@ const statusVariant = {
   CANCELED: "danger",
 } as const;
 
-export default async function BillingPage() {
+interface Props {
+  searchParams: { success?: string };
+}
+
+export default async function BillingPage({ searchParams }: Props) {
   const session = await getServerSession(authOptions);
   const user = session?.user as Record<string, unknown> | undefined;
   const tenantId = user?.["tenantId"] as string | undefined;
@@ -22,9 +27,20 @@ export default async function BillingPage() {
       })
     : null;
 
+  const hasActiveSubscription = !!(
+    subscription?.stripeSubscriptionId &&
+    (subscription.status === "ACTIVE" || subscription.status === "TRIALING")
+  );
+
   return (
     <div>
       <h1 className="mb-6 text-2xl font-bold">Billing</h1>
+
+      {searchParams.success && (
+        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-700">
+          Subscription activated — thank you!
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -51,12 +67,11 @@ export default async function BillingPage() {
             )}
           </div>
         ) : (
-          <p className="text-gray-500">No active subscription.</p>
+          <p className="mb-4 text-gray-500">No active subscription.</p>
         )}
 
         <div className="mt-6">
-          {/* TODO: Wire up Stripe Checkout session creation */}
-          <Button disabled>Manage Subscription (Coming Soon)</Button>
+          <CheckoutButton hasActiveSubscription={hasActiveSubscription} />
         </div>
       </Card>
     </div>

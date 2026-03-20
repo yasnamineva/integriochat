@@ -24,5 +24,5 @@ export default async function ChatbotDetailPage({ params }: Props) {
   const baseUrl = process.env["NEXT_PUBLIC_BASE_URL"] ?? "https://yourdomain.com";
   const embedSnippet = `<script src="${baseUrl}/widget.js" data-bot="${chatbot.id}"></script>`;
 
-  return <ChatbotDetail chatbot={chatbot} embedSnippet={embedSnippet} />;
+  return <ChatbotDetail chatbot={chatbot} embedSnippet={embedSnippet} baseUrl={baseUrl} />;
 }
