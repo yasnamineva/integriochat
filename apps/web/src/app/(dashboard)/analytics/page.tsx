@@ -55,7 +55,7 @@ export default async function AnalyticsPage() {
     orderBy: { _count: { id: "desc" } },
   });
 
-  const botNameMap = Object.fromEntries(chatbots.map((b) => [b.id, b.name]));
+  const botNameMap = Object.fromEntries(chatbots.map((b: { id: string; name: string }) => [b.id, b.name]));
   const perBot = perBotRaw.map((row) => ({
     name: botNameMap[row.chatbotId] ?? "Unknown",
     count: row._count.id,
