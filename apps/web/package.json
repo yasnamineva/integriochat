@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "dotenv -e ../../.env -- env NODE_TLS_REJECT_UNAUTHORIZED=0 next dev",
-    "build": "dotenv -e ../../.env -- next build",
+    "build": "next build",
     "start": "dotenv -e ../../.env -- next start",
     "lint": "next lint",
     "test": "jest"
@@ -14,6 +14,7 @@
     "@integriochat/ui": "workspace:*",
     "@integriochat/utils": "workspace:*",
     "@prisma/client": "^5.14.0",
+    "@sentry/nextjs": "^10.45.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.31.0",
     "ai": "^3.2.0",
@@ -21,6 +22,7 @@
     "cheerio": "^1.2.0",
     "next": "^14.2.0",
     "next-auth": "^4.24.0",
+    "nodemailer": "^8.0.3",
     "openai": "^4.52.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
@@ -31,6 +33,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.14.0",
+    "@types/nodemailer": "^7.0.11",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",

@@ -1,16 +1,19 @@
 import { type NextRequest } from "next/server";
 import OpenAI from "openai";
-import { OpenAIStream, StreamingTextResponse } from "ai";
 import { prisma } from "@/lib/db";
 import { err } from "@integriochat/utils";
 import { ChatMessageSchema } from "@integriochat/utils";
 import { retrieveContext } from "@/services/embedding.service";
+import { checkMessageLimit, checkChatbotLimits, reportMessageUsage, logUsage } from "@/services/usage.service";
 
 /**
  * POST /api/chat
  *
  * Streams an AI response for an embedded chatbot.
  * Public endpoint — authenticated via chatbotId + validated Origin header.
+ *
+ * Returns a plain text/event-stream response — each chunk is raw text, NOT
+ * the Vercel AI SDK data-stream format (which encodes as `0:"token"`).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -45,6 +48,28 @@ export async function POST(req: NextRequest) {
       (subscription.status !== "ACTIVE" && subscription.status !== "TRIALING")
     ) {
       return err("Subscription inactive", 403);
+    }
+
+    // ── Plan-level limit check ────────────────────────────────────────────────
+    // Check BEFORE logging the user message so the count is accurate.
+    const limitCheck = await checkMessageLimit(chatbot.tenantId, subscription.plan);
+    if (!limitCheck.allowed) {
+      return err(
+        `Monthly message limit reached (${limitCheck.used.toLocaleString()} / ${limitCheck.limit.toLocaleString()}). ` +
+          "Upgrade your plan to continue.",
+        429
+      );
+    }
+
+    // ── Per-chatbot caps (USAGE plan) ─────────────────────────────────────────
+    const chatbotLimitCheck = await checkChatbotLimits({
+      id: chatbot.id,
+      tenantId: chatbot.tenantId,
+      monthlyMessageLimit: chatbot.monthlyMessageLimit,
+      monthlySpendLimitCents: chatbot.monthlySpendLimitCents,
+    });
+    if (!chatbotLimitCheck.allowed) {
+      return err(chatbotLimitCheck.reason ?? "Chatbot limit reached", 429);
     }
 
     // ── CORS: validate Origin against tenant's allowed domains ───────────────
@@ -95,6 +120,12 @@ export async function POST(req: NextRequest) {
     // It is always passed as a separate "user" message entry.
     let systemContent = chatbot.systemPrompt;
 
+    // Append fallback instruction when one is configured
+    if (chatbot.fallbackMsg) {
+      systemContent +=
+        `\n\nIf you cannot find a relevant answer in the provided context, respond with exactly: "${chatbot.fallbackMsg}"`;
+    }
+
     if (customQAs.length > 0) {
       const qaBlock = customQAs
         .map((qa) => `Q: ${qa.question}\nA: ${qa.answer}`)
@@ -117,7 +148,9 @@ export async function POST(req: NextRequest) {
     // ── Stream via OpenAI ────────────────────────────────────────────────────
     const openai = new OpenAI();
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: chatbot.aiModel ?? "gpt-4o-mini",
+      temperature: chatbot.temperature ?? 0.7,
+      max_tokens: chatbot.maxTokens ?? 500,
       stream: true,
       messages: [
         { role: "system", content: systemContent },
@@ -129,25 +162,49 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    const stream = OpenAIStream(completion, {
-      async onFinal(assistantReply) {
+    // Capture for usage logging
+    const tenantId = chatbot.tenantId;
+    // Only report to Stripe Meters for the USAGE (metered) plan
+    const stripeCustomerId =
+      subscription.plan === "USAGE" ? (subscription.stripeCustomerId ?? null) : null;
+    const encoder = new TextEncoder();
+
+    // Plain text stream — iterate OpenAI chunks directly.
+    // Avoids the Vercel AI SDK data-stream encoding (0:"token" format).
+    const stream = new ReadableStream({
+      async start(controller) {
+        let fullReply = "";
+        try {
+          for await (const chunk of completion) {
+            const delta = chunk.choices[0]?.delta?.content ?? "";
+            if (delta) {
+              fullReply += delta;
+              controller.enqueue(encoder.encode(delta));
+            }
+          }
+        } finally {
+          controller.close();
+        }
+
+        // Post-stream: log assistant message and report usage (non-fatal)
         try {
           await prisma.message.create({
-            data: {
-              tenantId: chatbot.tenantId,
-              chatbotId,
-              sessionId,
-              role: "assistant",
-              content: assistantReply,
-            },
+            data: { tenantId, chatbotId, sessionId, role: "assistant", content: fullReply },
           });
         } catch (e) {
           console.error("[POST /api/chat] failed to log assistant message", e);
         }
+
+        void logUsage(tenantId, chatbotId, systemContent + message, fullReply);
+        if (stripeCustomerId) {
+          void reportMessageUsage(stripeCustomerId);
+        }
       },
     });
 
-    return new StreamingTextResponse(stream);
+    return new Response(stream, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   } catch (e) {
     console.error("[POST /api/chat]", e);
     return err("Internal server error", 500);

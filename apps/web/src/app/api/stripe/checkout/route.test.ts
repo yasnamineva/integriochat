@@ -2,20 +2,24 @@ jest.mock("stripe", () => {
   const mockPortalCreate = jest.fn();
   const mockCustomersCreate = jest.fn();
   const mockSessionsCreate = jest.fn();
+  const mockSubsRetrieve = jest.fn();
+  const mockSubsUpdate = jest.fn();
   const MockStripe = jest.fn().mockImplementation(() => ({
     billingPortal: { sessions: { create: mockPortalCreate } },
     customers: { create: mockCustomersCreate },
     checkout: { sessions: { create: mockSessionsCreate } },
+    subscriptions: { retrieve: mockSubsRetrieve, update: mockSubsUpdate },
   }));
-  // Expose mocks on the constructor for test access
   (MockStripe as unknown as Record<string, unknown>)._mockPortalCreate = mockPortalCreate;
   (MockStripe as unknown as Record<string, unknown>)._mockCustomersCreate = mockCustomersCreate;
   (MockStripe as unknown as Record<string, unknown>)._mockSessionsCreate = mockSessionsCreate;
+  (MockStripe as unknown as Record<string, unknown>)._mockSubsRetrieve = mockSubsRetrieve;
+  (MockStripe as unknown as Record<string, unknown>)._mockSubsUpdate = mockSubsUpdate;
   return { __esModule: true, default: MockStripe };
 });
 
 const mockPrisma = {
-  subscription: { findFirst: jest.fn() },
+  subscription: { findFirst: jest.fn(), update: jest.fn() },
 };
 
 jest.mock("@/lib/db", () => ({
@@ -36,28 +40,36 @@ function mockStripeInstance() {
     billingPortal: { sessions: { create: jest.Mock } };
     customers: { create: jest.Mock };
     checkout: { sessions: { create: jest.Mock } };
+    subscriptions: { retrieve: jest.Mock; update: jest.Mock };
   };
 }
 
-function makeRequest(): NextRequest {
-  return new NextRequest("http://localhost/api/stripe/checkout", { method: "POST" });
+function makeRequest(body?: object): NextRequest {
+  return new NextRequest("http://localhost/api/stripe/checkout", {
+    method: "POST",
+    body: body ? JSON.stringify(body) : undefined,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   process.env["STRIPE_SECRET_KEY"] = "sk_test_123";
-  process.env["STRIPE_PRICE_ID"] = "price_test_123";
+  process.env["STRIPE_PRICE_HOBBY"] = "price_test_123";
   process.env["NEXT_PUBLIC_BASE_URL"] = "http://localhost:3000";
   mockRequireTenantId.mockResolvedValue("tenant-123");
   mockPrisma.subscription.findFirst.mockResolvedValue(null);
+  mockPrisma.subscription.update.mockResolvedValue({});
   MockStripe._mockCustomersCreate.mockResolvedValue({ id: "cus_new" });
   MockStripe._mockSessionsCreate.mockResolvedValue({ url: "https://checkout.stripe.com/pay/abc" });
   MockStripe._mockPortalCreate.mockResolvedValue({ url: "https://billing.stripe.com/session/xyz" });
+  MockStripe._mockSubsRetrieve.mockResolvedValue({ items: { data: [{ id: "si_fallback" }] } });
+  MockStripe._mockSubsUpdate.mockResolvedValue({});
 });
 
 afterEach(() => {
   delete process.env["STRIPE_SECRET_KEY"];
-  delete process.env["STRIPE_PRICE_ID"];
+  delete process.env["STRIPE_PRICE_HOBBY"];
 });
 
 describe("POST /api/stripe/checkout", () => {
@@ -95,24 +107,49 @@ describe("POST /api/stripe/checkout", () => {
     await POST(makeRequest());
     const stripe = mockStripeInstance();
     expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: { tenantId: "tenant-123" } })
+      expect.objectContaining({ metadata: expect.objectContaining({ tenantId: "tenant-123" }) })
     );
   });
 
-  test("redirects existing customer with subscription to Customer Portal", async () => {
+  test("upgrades existing subscription directly via API and returns upgraded:true", async () => {
     mockPrisma.subscription.findFirst.mockResolvedValue({
+      id: "sub-db-id",
       stripeCustomerId: "cus_existing",
       stripeSubscriptionId: "sub_existing",
+      stripeItemId: "si_existing",
     });
-    const res = await POST(makeRequest());
-    const body = await res.json() as { data: { url: string } };
+
+    const res = await POST(makeRequest({ plan: "HOBBY" }));
+    const body = await res.json() as { data: { upgraded: boolean } };
+
+    expect(res.status).toBe(200);
+    expect(body.data.upgraded).toBe(true);
 
     const stripe = mockStripeInstance();
-    expect(stripe.billingPortal.sessions.create).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: "cus_existing" })
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith(
+      "sub_existing",
+      expect.objectContaining({ items: [expect.objectContaining({ id: "si_existing" })] })
     );
-    expect(body.data.url).toBe("https://billing.stripe.com/session/xyz");
     expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(stripe.billingPortal.sessions.create).not.toHaveBeenCalled();
+  });
+
+  test("falls back to Stripe retrieve when stripeItemId is missing", async () => {
+    mockPrisma.subscription.findFirst.mockResolvedValue({
+      id: "sub-db-id",
+      stripeCustomerId: "cus_existing",
+      stripeSubscriptionId: "sub_existing",
+      stripeItemId: null,
+    });
+
+    await POST(makeRequest({ plan: "HOBBY" }));
+    const stripe = mockStripeInstance();
+
+    expect(stripe.subscriptions.retrieve).toHaveBeenCalledWith("sub_existing");
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith(
+      "sub_existing",
+      expect.objectContaining({ items: [expect.objectContaining({ id: "si_fallback" })] })
+    );
   });
 
   test("returns 503 when STRIPE_SECRET_KEY is not set", async () => {
@@ -121,8 +158,8 @@ describe("POST /api/stripe/checkout", () => {
     expect(res.status).toBe(503);
   });
 
-  test("returns 503 when STRIPE_PRICE_ID is not set", async () => {
-    delete process.env["STRIPE_PRICE_ID"];
+  test("returns 503 when STRIPE_PRICE_HOBBY is not set", async () => {
+    delete process.env["STRIPE_PRICE_HOBBY"];
     const res = await POST(makeRequest());
     expect(res.status).toBe(503);
   });

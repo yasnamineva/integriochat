@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     // Verify ownership before updating
     const existing = await prisma.chatbot.findFirst({
       where: { id: params.id, tenantId },
-      select: { id: true },
+      select: { id: true, websiteUrl: true },
     });
     if (!existing) return err("Chatbot not found", 404);
 
@@ -48,12 +48,23 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       Object.entries(parsed.data).filter(([, v]) => v !== undefined)
     );
 
+    // If websiteUrl changed and autoRetrain is on, kick off a re-scrape
+    const websiteChanged =
+      parsed.data.websiteUrl !== undefined &&
+      parsed.data.websiteUrl !== existing.websiteUrl;
+
     const updated = await prisma.chatbot.update({
       where: { id: params.id, tenantId },
       data: updateData,
     });
 
-    // TODO: If systemPrompt or source URLs changed, re-trigger embedding generation
+    if (websiteChanged && updated.autoRetrain && updated.websiteUrl) {
+      // Fire-and-forget: mark as scraping, actual job would be queued
+      void prisma.chatbot.update({
+        where: { id: params.id },
+        data: { scrapeStatus: "scraping" },
+      });
+    }
 
     return ok(updated);
   } catch (e) {

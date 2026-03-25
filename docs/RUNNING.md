@@ -187,6 +187,23 @@ Stripe starts you in **test mode** — no real money moves. Use test mode for de
 
 When you go live, switch the dashboard out of test mode and repeat steps 1–6 with live-mode keys.
 
+#### Plan price IDs
+
+The app supports 4 paid plans (Hobby, Standard, Pro, Enterprise), each with a monthly and annual price.
+Create one Stripe **Product** per plan with two **Prices** each (monthly + annual), then set these env vars:
+
+| Variable | Plan | Billing |
+|---|---|---|
+| `STRIPE_PRICE_HOBBY` | Hobby | Monthly ($40/mo) |
+| `STRIPE_PRICE_HOBBY_ANNUAL` | Hobby | Annual ($32/mo billed annually) |
+| `STRIPE_PRICE_STANDARD` | Standard | Monthly ($150/mo) |
+| `STRIPE_PRICE_STANDARD_ANNUAL` | Standard | Annual ($120/mo billed annually) |
+| `STRIPE_PRICE_PRO` | Pro | Monthly ($500/mo) |
+| `STRIPE_PRICE_PRO_ANNUAL` | Pro | Annual ($400/mo billed annually) |
+| `STRIPE_PRICE_ENTERPRISE` | Enterprise | Custom / contact sales |
+
+All plan price IDs start with `price_...` and are found at **Stripe dashboard → Products → [plan] → Pricing**.
+
 ---
 
 ### Service 4 — Upstash (rate limiting)
@@ -231,6 +248,12 @@ After the first deploy, copy the auto-generated `.vercel.app` domain and set it 
 | `OPENAI_API_KEY` | platform.openai.com/api-keys → Create new secret key | `sk-proj-...` |
 | `STRIPE_SECRET_KEY` | Stripe dashboard → Developers → API keys → Secret key | `sk_test_...` |
 | `STRIPE_WEBHOOK_SECRET` | Stripe dashboard → Developers → Webhooks → endpoint → Signing secret | `whsec_...` |
+| `STRIPE_PRICE_HOBBY` | Stripe → Products → Hobby → Pricing (monthly) | `price_...` |
+| `STRIPE_PRICE_HOBBY_ANNUAL` | Stripe → Products → Hobby → Pricing (annual) | `price_...` |
+| `STRIPE_PRICE_STANDARD` | Stripe → Products → Standard → Pricing (monthly) | `price_...` |
+| `STRIPE_PRICE_STANDARD_ANNUAL` | Stripe → Products → Standard → Pricing (annual) | `price_...` |
+| `STRIPE_PRICE_PRO` | Stripe → Products → Pro → Pricing (monthly) | `price_...` |
+| `STRIPE_PRICE_PRO_ANNUAL` | Stripe → Products → Pro → Pricing (annual) | `price_...` |
 | `NEXTAUTH_SECRET` | Generate locally: `openssl rand -base64 32` | `s3cr3t...` |
 | `NEXTAUTH_URL` | Your production domain | `https://integriochat.vercel.app` |
 | `NEXT_PUBLIC_BASE_URL` | Same as `NEXTAUTH_URL` | `https://integriochat.vercel.app` |
@@ -265,7 +288,7 @@ Run from the repo root unless noted.
 | `pnpm --filter web dev` | Start only the Next.js app |
 | `pnpm build` | Production build for all apps |
 | `pnpm lint` | ESLint across all packages |
-| `pnpm test` | Run all 136 tests |
+| `pnpm test` | Run all 118 tests |
 | `pnpm db:generate` | Regenerate Prisma client from schema |
 | `pnpm db:migrate` | Deploy pending migrations (production) |
 | `pnpm --filter @integriochat/db db:migrate:dev` | Create + apply a migration (development) |

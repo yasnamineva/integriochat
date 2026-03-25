@@ -7,6 +7,10 @@ const mockPrisma = {
   chatbot: {
     findMany: jest.fn(),
     create: jest.fn(),
+    count: jest.fn(),
+  },
+  subscription: {
+    findFirst: jest.fn(),
   },
 };
 
@@ -18,6 +22,12 @@ jest.mock("@/lib/db", () => ({
 import { NextRequest } from "next/server";
 import { GET, POST } from "./route";
 import { requireTenantId } from "@/lib/db";
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockPrisma.subscription.findFirst.mockResolvedValue(null); // no subscription → STARTER plan
+  mockPrisma.chatbot.count.mockResolvedValue(0);            // 0 bots → under limit
+});
 
 // ─── GET /api/chatbots ────────────────────────────────────────────────────────
 

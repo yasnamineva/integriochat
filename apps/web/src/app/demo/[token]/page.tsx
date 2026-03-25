@@ -15,7 +15,17 @@ export default async function DemoPage({ params }: Props) {
     where: { token: params.token },
     include: {
       chatbot: {
-        select: { id: true, name: true, isActive: true },
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+          chatTitle: true,
+          chatAvatar: true,
+          themeColor: true,
+          widgetTheme: true,
+          initialMessage: true,
+          suggestedQs: true,
+        },
       },
     },
   });
@@ -56,7 +66,15 @@ export default async function DemoPage({ params }: Props) {
         </p>
       </div>
 
-      <DemoChat chatbotId={demoLink.chatbot.id} />
+      <DemoChat
+        chatbotId={demoLink.chatbot.id}
+        chatTitle={demoLink.chatbot.chatTitle ?? demoLink.chatbot.name}
+        chatAvatar={demoLink.chatbot.chatAvatar ?? null}
+        themeColor={demoLink.chatbot.themeColor ?? "#6366f1"}
+        widgetTheme={demoLink.chatbot.widgetTheme ?? "light"}
+        initialMessage={demoLink.chatbot.initialMessage ?? "Hi! How can I help you today?"}
+        suggestedQs={demoLink.chatbot.suggestedQs ?? []}
+      />
     </div>
   );
 }

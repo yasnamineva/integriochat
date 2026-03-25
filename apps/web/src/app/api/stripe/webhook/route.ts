@@ -1,7 +1,7 @@
 import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/db";
-import type { SubscriptionStatus } from "@integriochat/db";
+import type { SubscriptionStatus, Plan } from "@integriochat/db";
 
 /** Map Stripe subscription statuses to our DB enum. */
 function toDbStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
@@ -73,12 +73,31 @@ export async function POST(req: NextRequest) {
         let status: SubscriptionStatus = "ACTIVE";
         let trialEndsAt: Date | null = null;
         let currentPeriodEnd: Date | null = null;
+        let stripeItemId: string | null = null;
+        let stripeUsageItemId: string | null = null;
+
+        // Resolve plan from metadata (defaults to FREE)
+        const validPlans: Plan[] = ["FREE", "HOBBY", "STANDARD", "PRO", "ENTERPRISE", "USAGE"];
+        const plan: Plan = validPlans.includes(session.metadata?.["plan"] as Plan)
+          ? (session.metadata!["plan"] as Plan)
+          : "FREE";
+        const billingPeriod = session.metadata?.["annual"] === "true" ? "ANNUAL" : "MONTHLY";
 
         if (stripeSubscriptionId) {
           const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
           status = toDbStatus(sub.status);
           trialEndsAt = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
           currentPeriodEnd = new Date(sub.current_period_end * 1000);
+
+          // Identify flat-rate vs metered subscription items
+          const usagePriceId = process.env["STRIPE_USAGE_PRICE_ID"];
+          for (const item of sub.items.data) {
+            if (usagePriceId && item.price.id === usagePriceId) {
+              stripeUsageItemId = item.id;
+            } else {
+              stripeItemId = item.id;
+            }
+          }
         }
 
         // Upsert: update the existing seed/dev subscription or create a new one
@@ -86,11 +105,11 @@ export async function POST(req: NextRequest) {
         if (existing) {
           await prisma.subscription.update({
             where: { id: existing.id },
-            data: { status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd },
+            data: { status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId },
           });
         } else {
           await prisma.subscription.create({
-            data: { tenantId, status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd },
+            data: { tenantId, status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId },
           });
         }
 
@@ -136,6 +155,38 @@ export async function POST(req: NextRequest) {
         });
 
         console.log(`[Stripe] invoice.payment_failed — ${stripeSubscriptionId} → PAST_DUE`);
+        break;
+      }
+
+      // ── Subscription plan changed (upgrade/downgrade via portal) ─────────
+      case "customer.subscription.updated": {
+        const sub = event.data.object as Stripe.Subscription;
+        const dbSub = await prisma.subscription.findFirst({
+          where: { stripeSubscriptionId: sub.id },
+        });
+        if (!dbSub) break;
+
+        const status = toDbStatus(sub.status);
+        const currentPeriodEnd = new Date(sub.current_period_end * 1000);
+
+        // Identify flat-rate vs metered items and resolve plan from price ID
+        const usagePriceId = process.env["STRIPE_PRICE_USAGE"];
+        let stripeItemId: string | null = null;
+        let stripeUsageItemId: string | null = null;
+        for (const item of sub.items.data) {
+          if (usagePriceId && item.price.id === usagePriceId) {
+            stripeUsageItemId = item.id;
+          } else {
+            stripeItemId = item.id;
+          }
+        }
+
+        await prisma.subscription.update({
+          where: { id: dbSub.id },
+          data: { status, currentPeriodEnd, stripeItemId, stripeUsageItemId },
+        });
+
+        console.log(`[Stripe] customer.subscription.updated — ${sub.id} → ${status}`);
         break;
       }
 

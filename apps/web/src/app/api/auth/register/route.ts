@@ -41,10 +41,18 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Create Tenant + User atomically
+    // Create Tenant + User + free Subscription atomically
     const user = await prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
         data: { name: companyName, slug, allowedDomains: [] },
+      });
+
+      await tx.subscription.create({
+        data: {
+          tenantId: tenant.id,
+          plan: "FREE",
+          status: "ACTIVE",
+        },
       });
 
       return tx.user.create({

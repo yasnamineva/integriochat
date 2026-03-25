@@ -5,4 +5,5 @@ export {
   PrismaClient,
   Role,
   SubscriptionStatus,
+  Plan,
 } from "@prisma/client";

@@ -33,10 +33,13 @@ export async function retrieveContext(
   query: string,
   topK = 5
 ): Promise<ContextChunk[]> {
-  const count = await prisma.embeddingDocument.count({
-    where: { chatbotId, tenantId, embedding: { not: null } },
-  });
-  if (count === 0) return [];
+  const [{ count }] = await prisma.$queryRawUnsafe<[{ count: bigint }]>(
+    `SELECT COUNT(*) AS count FROM embedding_documents
+     WHERE "chatbotId" = $1::uuid AND "tenantId" = $2::uuid AND embedding IS NOT NULL`,
+    chatbotId,
+    tenantId
+  );
+  if (count === 0n) return [];
 
   const embedding = await generateEmbedding(query);
   // Vector literal is safe to inline — it contains only numbers and commas

@@ -5,12 +5,6 @@ jest.mock("openai", () => ({
   default: jest.fn(),
 }));
 
-jest.mock("ai", () => ({
-  __esModule: true,
-  OpenAIStream: jest.fn(),
-  StreamingTextResponse: jest.fn(),
-}));
-
 jest.mock("@/services/embedding.service", () => ({
   retrieveContext: jest.fn(),
 }));
@@ -18,33 +12,66 @@ jest.mock("@/services/embedding.service", () => ({
 jest.mock("@/lib/db", () => ({
   prisma: {
     chatbot: { findFirst: jest.fn() },
-    message: { create: jest.fn(), findMany: jest.fn() },
+    message: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
     customQA: { findMany: jest.fn() },
+    usageLog: { create: jest.fn() },
   },
+}));
+
+jest.mock("@/services/usage.service", () => ({
+  checkMessageLimit: jest.fn(),
+  checkChatbotLimits: jest.fn(),
+  reportMessageUsage: jest.fn(),
+  logUsage: jest.fn(),
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
-import { OpenAIStream, StreamingTextResponse } from "ai";
 import { retrieveContext } from "@/services/embedding.service";
 import { prisma } from "@/lib/db";
+import { checkMessageLimit, checkChatbotLimits } from "@/services/usage.service";
 import { POST } from "./route";
 
 // ── Typed mock helpers ────────────────────────────────────────────────────────
 
 const MockOpenAI = OpenAI as jest.Mock;
-const mockOpenAIStream = OpenAIStream as jest.Mock;
-const mockStreamingTextResponse = StreamingTextResponse as jest.Mock;
 const mockRetrieveContext = retrieveContext as jest.Mock;
 const mockPrisma = prisma as {
   chatbot: { findFirst: jest.Mock };
-  message: { create: jest.Mock; findMany: jest.Mock };
+  message: { create: jest.Mock; findMany: jest.Mock; count: jest.Mock };
   customQA: { findMany: jest.Mock };
+  usageLog: { create: jest.Mock };
 };
+const mockCheckMessageLimit = checkMessageLimit as jest.Mock;
+const mockCheckChatbotLimits = checkChatbotLimits as jest.Mock;
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
+
+/** Build an async iterable that yields text chunks, simulating OpenAI streaming. */
+function makeStream(...chunks: string[]) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const text of chunks) {
+        yield { choices: [{ delta: { content: text } }] };
+      }
+    },
+  };
+}
+
+/** Drain a ReadableStream and return the concatenated text. */
+async function drainStream(res: Response): Promise<string> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+  return text;
+}
 
 function makeRequest(body: unknown, origin = "https://example.com"): NextRequest {
   return new NextRequest("http://localhost/api/chat", {
@@ -65,46 +92,40 @@ const mockChatbot = {
   name: "Test Bot",
   tenantId: "tenant-123",
   systemPrompt: "You are a helpful assistant.",
+  fallbackMsg: "",
+  aiModel: "gpt-4o-mini",
+  temperature: 0.7,
+  maxTokens: 500,
   isActive: true,
+  monthlyMessageLimit: null,
+  monthlySpendLimitCents: null,
   tenant: {
     allowedDomains: [],
-    subscriptions: [{ status: "ACTIVE", createdAt: new Date() }],
+    subscriptions: [{ status: "ACTIVE", plan: "HOBBY", stripeUsageItemId: null, createdAt: new Date() }],
   },
 };
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 let mockCreate: jest.Mock;
-let capturedOnFinal: ((text: string) => Promise<void>) | undefined;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  capturedOnFinal = undefined;
 
-  // Wire up new OpenAI() → mock instance with a create fn we can inspect
-  mockCreate = jest.fn().mockResolvedValue({});
+  mockCreate = jest.fn().mockResolvedValue(makeStream("assistant reply"));
   MockOpenAI.mockImplementation(() => ({
     chat: { completions: { create: mockCreate } },
   }));
 
-  // OpenAIStream captures the onFinal callback and returns a dummy stream
-  mockOpenAIStream.mockImplementation(
-    (_stream: unknown, opts?: { onFinal?: (t: string) => Promise<void> }) => {
-      capturedOnFinal = opts?.onFinal;
-      return new ReadableStream();
-    }
-  );
-
-  // StreamingTextResponse wraps the stream in a 200 Response
-  mockStreamingTextResponse.mockImplementation((stream: ReadableStream) => {
-    return new Response(stream, { status: 200 });
-  });
-
   mockRetrieveContext.mockResolvedValue([]);
+  mockCheckMessageLimit.mockResolvedValue({ allowed: true, used: 100, limit: 50_000 });
+  mockCheckChatbotLimits.mockResolvedValue({ allowed: true });
   mockPrisma.chatbot.findFirst.mockResolvedValue(mockChatbot);
   mockPrisma.message.create.mockResolvedValue({});
   mockPrisma.message.findMany.mockResolvedValue([]);
+  mockPrisma.message.count.mockResolvedValue(100);
   mockPrisma.customQA.findMany.mockResolvedValue([]);
+  mockPrisma.usageLog.create.mockResolvedValue({});
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -113,6 +134,16 @@ describe("POST /api/chat", () => {
   test("returns 200 streaming response for valid request", async () => {
     const res = await POST(makeRequest(validBody));
     expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+  });
+
+  test("streams raw text — no SDK data-stream encoding", async () => {
+    mockCreate.mockResolvedValue(makeStream("Hello", " world"));
+    const res = await POST(makeRequest(validBody));
+    const text = await drainStream(res);
+    expect(text).toBe("Hello world");
+    // Must NOT contain the Vercel AI SDK data-stream prefix
+    expect(text).not.toMatch(/^0:/);
   });
 
   test("calls OpenAI with model gpt-4o-mini and stream:true", async () => {
@@ -178,11 +209,12 @@ describe("POST /api/chat", () => {
     );
   });
 
-  test("logs assistant reply to database via onFinal callback", async () => {
-    await POST(makeRequest(validBody));
-    expect(capturedOnFinal).toBeDefined();
-
-    await capturedOnFinal!("This is the assistant reply.");
+  test("logs assistant reply to database after stream completes", async () => {
+    mockCreate.mockResolvedValue(makeStream("This is ", "the assistant reply."));
+    const res = await POST(makeRequest(validBody));
+    await drainStream(res);
+    // Allow the post-stream async logging to complete
+    await new Promise((r) => setTimeout(r, 10));
 
     expect(mockPrisma.message.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -258,5 +290,30 @@ describe("POST /api/chat", () => {
     });
     const res = await POST(makeRequest(validBody));
     expect(res.status).toBe(200);
+  });
+
+  test("returns 429 when monthly message limit is reached", async () => {
+    mockCheckMessageLimit.mockResolvedValue({ allowed: false, used: 50_000, limit: 50_000 });
+    const res = await POST(makeRequest(validBody));
+    expect(res.status).toBe(429);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("Monthly message limit reached");
+  });
+
+  test("allows messages when on USAGE plan (no hard limit)", async () => {
+    mockCheckMessageLimit.mockResolvedValue({ allowed: true, used: 0, limit: -1 });
+    const res = await POST(makeRequest(validBody));
+    expect(res.status).toBe(200);
+  });
+
+  test("returns 429 when per-chatbot limit is reached", async () => {
+    mockCheckChatbotLimits.mockResolvedValue({
+      allowed: false,
+      reason: "This chatbot has reached its monthly message limit (500 messages).",
+    });
+    const res = await POST(makeRequest(validBody));
+    expect(res.status).toBe(429);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain("monthly message limit");
   });
 });

@@ -29,6 +29,20 @@ enum SubscriptionStatus {
   CANCELED
 }
 
+enum Plan {
+  FREE
+  HOBBY
+  STANDARD
+  PRO
+  ENTERPRISE
+  USAGE
+}
+
+enum BillingPeriod {
+  MONTHLY
+  ANNUAL
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Tenant {
@@ -47,6 +61,7 @@ model Tenant {
   messages           Message[]
   usageLogs          UsageLog[]
   customQAs          CustomQA[]
+  webhooks           Webhook[]
 
   @@map("tenants")
 }
@@ -79,6 +94,27 @@ model Chatbot {
   websiteUrl    String?
   scrapeStatus  String    @default("idle") // idle | scraping | done | error
   lastScrapedAt DateTime?
+  autoRetrain   Boolean   @default(false)
+  // AI configuration
+  aiModel       String    @default("gpt-4o-mini")
+  temperature   Float     @default(0.7)
+  maxTokens     Int       @default(500)
+  fallbackMsg   String    @default("I'm sorry, I don't have enough information to answer that. Please contact our support team for help.") @db.Text
+  // White label / appearance
+  chatTitle     String?
+  chatAvatar    String?
+  themeColor    String    @default("#6366f1")
+  widgetPosition String   @default("bottom-right") // "bottom-right" | "bottom-left"
+  widgetTheme   String    @default("light")         // "light" | "dark"
+  initialMessage String   @default("Hi! How can I help you today?")
+  suggestedQs   String[]
+  // API access
+  apiKey        String    @unique @default(dbgenerated("concat('cb_', replace(gen_random_uuid()::text, '-', ''))"))
+  // Per-chatbot spending caps (USAGE plan) — null = no cap
+  // monthlyMessageLimit: max user messages per calendar month for this chatbot
+  // monthlySpendLimitCents: max billing charge (at 95% margin rate) in USD cents per month
+  monthlyMessageLimit    Int?
+  monthlySpendLimitCents Int?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -88,6 +124,7 @@ model Chatbot {
   messages           Message[]
   usageLogs          UsageLog[]
   customQAs          CustomQA[]
+  webhooks           Webhook[]
 
   @@index([tenantId])
   @@map("chatbots")
@@ -153,7 +190,12 @@ model Subscription {
   stripeCustomerId     String?
   stripeSubscriptionId String?            @unique
   stripePriceId        String?
+  stripeItemId         String?
+  stripeUsageItemId    String?
   status               SubscriptionStatus @default(TRIALING)
+  plan                 Plan               @default(FREE)
+  billingPeriod        BillingPeriod      @default(MONTHLY)
+  removeBranding       Boolean            @default(false)
   trialEndsAt          DateTime?
   currentPeriodEnd     DateTime?
   canceledAt           DateTime?
@@ -200,4 +242,35 @@ model UsageLog {
   @@index([tenantId])
   @@index([chatbotId])
   @@map("usage_logs")
+}
+
+model Webhook {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  chatbotId String   @db.Uuid
+  name      String
+  url       String
+  events    String[] // e.g. ["message.completed", "conversation.started", "lead.captured"]
+  isActive  Boolean  @default(true)
+  secret    String   @default(dbgenerated("concat('wh_', replace(gen_random_uuid()::text, '-', ''))"))
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chatbot Chatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([chatbotId])
+  @@map("webhooks")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@map("password_reset_tokens")
 }

@@ -1,6 +1,12 @@
 import * as esbuild from "esbuild";
+import * as fs from "fs";
+import * as path from "path";
 
 const watch = process.argv.includes("--watch");
+
+// Also copy to apps/web/public so Next.js serves it at /widget.js
+const webPublicDir = path.resolve(__dirname, "../../apps/web/public");
+const webPublicOut = path.join(webPublicDir, "widget.js");
 
 const buildOptions: esbuild.BuildOptions = {
   entryPoints: ["src/index.ts"],
@@ -15,13 +21,31 @@ const buildOptions: esbuild.BuildOptions = {
   logLevel: "info",
 };
 
+function copyToWebPublic() {
+  if (!fs.existsSync(webPublicDir)) {
+    fs.mkdirSync(webPublicDir, { recursive: true });
+  }
+  fs.copyFileSync("dist/widget.js", webPublicOut);
+  console.log(`Widget copied → ${webPublicOut}`);
+}
+
 void (async () => {
   if (watch) {
-    const ctx = await esbuild.context(buildOptions);
+    const plugin: esbuild.Plugin = {
+      name: "copy-to-web-public",
+      setup(build) {
+        build.onEnd(() => { copyToWebPublic(); });
+      },
+    };
+    const ctx = await esbuild.context({
+      ...buildOptions,
+      plugins: [plugin],
+    });
     await ctx.watch();
     console.log("Watching for changes…");
   } else {
     await esbuild.build(buildOptions);
     console.log("Widget built → dist/widget.js");
+    copyToWebPublic();
   }
 })();

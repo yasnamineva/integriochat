@@ -4,6 +4,17 @@ const BASE_URL =
     new URL(document.currentScript.src).origin) ||
   "";
 
+export interface ChatbotConfig {
+  name: string;
+  chatTitle: string;
+  chatAvatar: string | null;
+  themeColor: string;
+  widgetPosition: string;
+  widgetTheme: string;
+  initialMessage: string;
+  suggestedQs: string[];
+}
+
 export interface ChatResponse {
   success: boolean;
   data?: { reply: string };
@@ -11,21 +22,55 @@ export interface ChatResponse {
 }
 
 /**
- * Sends a chat message to the API and returns the response.
- * The Origin header is automatically set by the browser — the API validates it
- * against the tenant's allowed domains list.
+ * Fetches the public appearance config for a chatbot.
+ * Returns a default config if the request fails so the widget still renders.
  */
-export async function sendMessage(params: {
-  chatbotId: string;
-  sessionId: string;
-  message: string;
-}): Promise<ChatResponse> {
+export async function fetchConfig(chatbotId: string): Promise<ChatbotConfig> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/chat/config?chatbotId=${encodeURIComponent(chatbotId)}`);
+    if (res.ok) return await res.json() as ChatbotConfig;
+  } catch {
+    // fall through to defaults
+  }
+  return {
+    name: "Chat",
+    chatTitle: "Chat",
+    chatAvatar: null,
+    themeColor: "#6366f1",
+    widgetPosition: "bottom-right",
+    widgetTheme: "light",
+    initialMessage: "Hi! How can I help you today?",
+    suggestedQs: [],
+  };
+}
+
+/**
+ * Sends a chat message to the API and streams the plain-text response.
+ * Calls onChunk for each token, returns the full assembled reply.
+ */
+export async function sendMessage(
+  params: { chatbotId: string; sessionId: string; message: string },
+  onChunk: (chunk: string) => void
+): Promise<{ success: boolean; error?: string }> {
   const res = await fetch(`${BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
 
-  const data: unknown = await res.json();
-  return data as ChatResponse;
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({})) as { error?: string };
+    return { success: false, error: data.error ?? "Something went wrong." };
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onChunk(decoder.decode(value, { stream: true }));
+  }
+
+  return { success: true };
 }

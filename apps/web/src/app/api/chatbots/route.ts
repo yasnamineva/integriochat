@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 import { CreateChatbotSchema } from "@integriochat/utils";
+import { getPlanConfig } from "@/lib/plans";
 
 export async function GET() {
   try {
@@ -38,7 +39,29 @@ export async function POST(req: NextRequest) {
       return err(parsed.error.message, 422);
     }
 
-    const { name, systemPrompt, tone, leadCapture, websiteUrl } = parsed.data;
+    // ── Chatbot count limit ───────────────────────────────────────────────────
+    const subscription = await prisma.subscription.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+      select: { plan: true },
+    });
+    const plan = getPlanConfig(subscription?.plan ?? "FREE");
+    if (plan.limits.chatbots !== -1) {
+      const count = await prisma.chatbot.count({ where: { tenantId } });
+      if (count >= plan.limits.chatbots) {
+        return err(
+          `Your ${plan.name} plan allows ${plan.limits.chatbots} chatbot${plan.limits.chatbots === 1 ? "" : "s"}. Upgrade to add more.`,
+          403
+        );
+      }
+    }
+
+    const {
+      name, systemPrompt, tone, leadCapture, websiteUrl,
+      aiModel, temperature, maxTokens, fallbackMsg,
+      chatTitle, chatAvatar, themeColor, widgetPosition, widgetTheme,
+      initialMessage, suggestedQs, autoRetrain,
+    } = parsed.data;
 
     const chatbot = await prisma.chatbot.create({
       data: {
@@ -47,7 +70,19 @@ export async function POST(req: NextRequest) {
         systemPrompt,
         tone,
         leadCapture,
-        websiteUrl,
+        websiteUrl: websiteUrl ?? null,
+        ...(aiModel !== undefined && { aiModel }),
+        ...(temperature !== undefined && { temperature }),
+        ...(maxTokens !== undefined && { maxTokens }),
+        ...(fallbackMsg !== undefined && { fallbackMsg }),
+        ...(chatTitle !== undefined && { chatTitle }),
+        ...(chatAvatar !== undefined && { chatAvatar }),
+        ...(themeColor !== undefined && { themeColor }),
+        ...(widgetPosition !== undefined && { widgetPosition }),
+        ...(widgetTheme !== undefined && { widgetTheme }),
+        ...(initialMessage !== undefined && { initialMessage }),
+        ...(suggestedQs !== undefined && { suggestedQs }),
+        ...(autoRetrain !== undefined && { autoRetrain }),
       },
     });
 

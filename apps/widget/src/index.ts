@@ -1,25 +1,26 @@
 import { getWidgetHTML } from "./ui.js";
-import { sendMessage } from "./api.js";
+import { fetchConfig, sendMessage } from "./api.js";
 
-/** Generates a random session ID for grouping conversation messages */
 function newSessionId(): string {
   return `sess_${Math.random().toString(36).slice(2)}_${Date.now()}`;
 }
 
-function mountWidget(botId: string): void {
+async function mountWidget(botId: string): Promise<void> {
+  const config = await fetchConfig(botId);
+
   const host = document.createElement("div");
   host.setAttribute("data-chatbot-widget", "");
   document.body.appendChild(host);
 
-  // Shadow DOM provides full style isolation from the host page
   const shadow = host.attachShadow({ mode: "open" });
-  shadow.innerHTML = getWidgetHTML();
+  shadow.innerHTML = getWidgetHTML(config);
 
-  const toggleBtn = shadow.getElementById("toggle-btn") as HTMLButtonElement;
-  const chatPanel = shadow.getElementById("chat-panel") as HTMLDivElement;
-  const messagesEl = shadow.getElementById("messages") as HTMLDivElement;
-  const userInput = shadow.getElementById("user-input") as HTMLInputElement;
-  const sendBtn = shadow.getElementById("send-btn") as HTMLButtonElement;
+  const toggleBtn    = shadow.getElementById("toggle-btn") as HTMLButtonElement;
+  const chatPanel    = shadow.getElementById("chat-panel") as HTMLDivElement;
+  const messagesEl   = shadow.getElementById("messages") as HTMLDivElement;
+  const suggestionsEl = shadow.getElementById("suggestions") as HTMLDivElement;
+  const userInput    = shadow.getElementById("user-input") as HTMLInputElement;
+  const sendBtn      = shadow.getElementById("send-btn") as HTMLButtonElement;
 
   const sessionId = newSessionId();
   let isOpen = false;
@@ -31,45 +32,64 @@ function mountWidget(botId: string): void {
     if (isOpen) userInput.focus();
   }
 
-  function appendMessage(role: "user" | "assistant" | "error", text: string): void {
+  function appendMessage(role: "user" | "assistant" | "error", text: string): HTMLDivElement {
     const div = document.createElement("div");
     div.className = `msg ${role}`;
     div.textContent = text;
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
   }
 
-  async function handleSend(): Promise<void> {
-    const message = userInput.value.trim();
+  async function handleSend(message: string): Promise<void> {
+    message = message.trim();
     if (!message) return;
 
-    appendMessage("user", message);
+    // Hide suggested questions after first user message
+    suggestionsEl.classList.add("hidden");
+
     userInput.value = "";
     sendBtn.disabled = true;
     userInput.disabled = true;
 
-    try {
-      const result = await sendMessage({ chatbotId: botId, sessionId, message });
-      if (result.success && result.data?.reply) {
-        appendMessage("assistant", result.data.reply);
-      } else {
-        appendMessage("error", result.error ?? "Something went wrong. Please try again.");
+    appendMessage("user", message);
+
+    const replyDiv = appendMessage("assistant", "");
+    let accumulated = "";
+
+    const result = await sendMessage(
+      { chatbotId: botId, sessionId, message },
+      (chunk) => {
+        accumulated += chunk;
+        replyDiv.textContent = accumulated;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       }
-    } catch {
-      appendMessage("error", "Network error. Please check your connection.");
-    } finally {
-      sendBtn.disabled = false;
-      userInput.disabled = false;
-      userInput.focus();
+    );
+
+    if (!result.success) {
+      replyDiv.className = "msg error";
+      replyDiv.textContent = result.error ?? "Something went wrong. Please try again.";
     }
+
+    sendBtn.disabled = false;
+    userInput.disabled = false;
+    userInput.focus();
   }
 
+  // Wire up suggested question buttons
+  suggestionsEl.querySelectorAll<HTMLButtonElement>(".sq-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const q = btn.getAttribute("data-q") ?? "";
+      void handleSend(q);
+    });
+  });
+
   toggleBtn.addEventListener("click", togglePanel);
-  sendBtn.addEventListener("click", () => { void handleSend(); });
+  sendBtn.addEventListener("click", () => { void handleSend(userInput.value); });
   userInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      void handleSend();
+      void handleSend(userInput.value);
     }
   });
 }
@@ -77,7 +97,6 @@ function mountWidget(botId: string): void {
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 function bootstrap(): void {
-  // Find this script's data-bot attribute
   const script = document.currentScript as HTMLScriptElement | null;
   const botId = script?.getAttribute("data-bot");
 
@@ -86,7 +105,7 @@ function bootstrap(): void {
     return;
   }
 
-  mountWidget(botId);
+  void mountWidget(botId);
 }
 
 if (document.readyState === "loading") {

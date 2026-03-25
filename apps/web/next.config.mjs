@@ -13,7 +13,7 @@ const nextConfig = {
   experimental: {
     // Enable server actions
     serverActions: {
-      allowedOrigins: ["localhost:3000"],
+      allowedOrigins: ["localhost:3000", "integriochat.com", "*.integriochat.com"],
     },
   },
 };

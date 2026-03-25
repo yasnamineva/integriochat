@@ -48,7 +48,8 @@ export default function RegisterPage() {
       setError("Account created but sign-in failed. Please log in.");
       router.push("/login");
     } else {
-      router.push("/dashboard");
+      // Send new users straight to create their first chatbot
+      router.push("/chatbots/new?onboarding=1");
     }
   }
 

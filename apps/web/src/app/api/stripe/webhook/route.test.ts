@@ -41,6 +41,7 @@ const mockStripeSub = {
   status: "active",
   trial_end: null,
   current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 3600,
+  items: { data: [] },
 };
 
 beforeEach(() => {

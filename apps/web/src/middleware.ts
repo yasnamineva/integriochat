@@ -16,8 +16,8 @@ const ratelimit =
       })
     : null;
 
-const PROTECTED_API_PATHS = ["/api/chatbots", "/api/tenants"];
-const PROTECTED_PAGE_PATHS = ["/dashboard"];
+const PROTECTED_API_PATHS = ["/api/chatbots", "/api/tenants", "/api/settings", "/api/stripe"];
+const PROTECTED_PAGE_PATHS = ["/dashboard", "/chatbots", "/analytics", "/billing", "/settings"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -54,7 +54,7 @@ export async function middleware(req: NextRequest) {
   if (isProtectedApi || isProtectedPage) {
     const token = await getToken({
       req,
-      secret: process.env["NEXTAUTH_SECRET"],
+      secret: process.env["NEXTAUTH_SECRET"] ?? "",
     });
 
     if (!token) {
@@ -78,6 +78,12 @@ export const config = {
     "/api/chat",
     "/api/chatbots/:path*",
     "/api/tenants/:path*",
+    "/api/settings/:path*",
+    "/api/stripe/:path*",
     "/dashboard/:path*",
+    "/chatbots/:path*",
+    "/analytics/:path*",
+    "/billing/:path*",
+    "/settings/:path*",
   ],
 };

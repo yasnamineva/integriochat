@@ -8,7 +8,9 @@ import { Button } from "@integriochat/ui";
 const navItems = [
   { href: "/dashboard", label: "Overview" },
   { href: "/chatbots", label: "Chatbots" },
+  { href: "/analytics", label: "Analytics" },
   { href: "/billing", label: "Billing" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Sidebar() {

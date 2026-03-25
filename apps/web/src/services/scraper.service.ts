@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { prisma } from "@/lib/db";
 import { generateEmbedding } from "./embedding.service";
 
+/** Default fallback if no plan limit is passed. */
 const MAX_PAGES = 20;
 const CHUNK_SIZE = 700; // characters per chunk
 const CHUNK_OVERLAP = 100;
@@ -80,7 +81,8 @@ export interface ScrapeResult {
 export async function scrapeAndIndex(
   startUrl: string,
   chatbotId: string,
-  tenantId: string
+  tenantId: string,
+  maxPages = MAX_PAGES
 ): Promise<ScrapeResult> {
   const base = new URL(startUrl);
   const queue = [startUrl];
@@ -88,7 +90,7 @@ export async function scrapeAndIndex(
   let chunksIndexed = 0;
   let chunksSkipped = 0;
 
-  while (queue.length > 0 && visited.size < MAX_PAGES) {
+  while (queue.length > 0 && visited.size < maxPages) {
     const url = queue.shift()!;
     if (visited.has(url)) continue;
     visited.add(url);
@@ -99,7 +101,7 @@ export async function scrapeAndIndex(
     // Discover more pages on the same domain
     const links = extractLinks(html, base);
     for (const link of links) {
-      if (!visited.has(link) && queue.length + visited.size < MAX_PAGES) {
+      if (!visited.has(link) && queue.length + visited.size < maxPages) {
         queue.push(link);
       }
     }
