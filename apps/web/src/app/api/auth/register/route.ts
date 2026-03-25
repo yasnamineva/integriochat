@@ -1,8 +1,23 @@
 import { type NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
+import type { ZodError } from "zod";
 import { prisma } from "@integriochat/db";
 import { ok, err } from "@integriochat/utils";
 import { RegisterSchema } from "@integriochat/utils";
+
+function friendlyZodError(error: ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Invalid input.";
+  const field = issue.path[0];
+  if (field === "email") return "Please enter a valid email address.";
+  if (field === "password") {
+    if (issue.code === "too_small") return "Password must be at least 8 characters.";
+    return "Invalid password.";
+  }
+  if (field === "companyName") return "Company name is required.";
+  if (field === "name") return "Please enter your name.";
+  return issue.message;
+}
 
 /** Derive a URL-safe slug from a company name. */
 function toSlug(name: string): string {
@@ -18,7 +33,7 @@ export async function POST(req: NextRequest) {
     const body: unknown = await req.json();
     const parsed = RegisterSchema.safeParse(body);
     if (!parsed.success) {
-      return err(parsed.error.message, 422);
+      return err(friendlyZodError(parsed.error), 422);
     }
 
     const { email, password, name, companyName } = parsed.data;
