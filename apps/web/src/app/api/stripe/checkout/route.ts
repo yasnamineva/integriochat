@@ -80,6 +80,15 @@ export async function POST(req: NextRequest) {
     return ok({ url: session.url });
   } catch (e) {
     if (e instanceof Response) return e;
+    if (e instanceof Stripe.errors.StripeInvalidRequestError) {
+      if (e.code === "resource_missing" && e.param?.includes("price")) {
+        console.error("[POST /api/stripe/checkout]", e.message);
+        return err(
+          "The configured Stripe price does not exist. Make sure the STRIPE_PRICE_* env vars point to prices in the correct Stripe mode (test vs live).",
+          503
+        );
+      }
+    }
     console.error("[POST /api/stripe/checkout]", e);
     return err("Internal server error", 500);
   }
