@@ -15,6 +15,7 @@
     "test": "jest",
     "db:generate": "dotenv -e ../../.env -- prisma generate",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate deploy",
+    "db:migrate:prod": "prisma migrate deploy",
     "db:migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
     "db:seed": "dotenv -e ../../.env -- ts-node --compiler-options '{\"module\":\"CommonJS\",\"types\":[\"node\"]}' prisma/seed.ts",
     "db:studio": "dotenv -e ../../.env -- prisma studio"

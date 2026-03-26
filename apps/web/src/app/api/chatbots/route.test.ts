@@ -138,10 +138,11 @@ describe("POST /api/chatbots", () => {
     expect(body.success).toBe(false);
   });
 
-  test("returns 422 for missing required fields", async () => {
+  test("returns 422 for invalid field values", async () => {
     (requireTenantId as jest.Mock).mockResolvedValue("tenant-123");
 
-    const response = await POST(makePostRequest({}));
+    // name: "" still fails min(1) even though name is optional when omitted
+    const response = await POST(makePostRequest({ name: "" }));
     expect(response.status).toBe(422);
   });
 

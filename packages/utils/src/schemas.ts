@@ -6,8 +6,8 @@ export const AI_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"] as const;
 export type AiModel = (typeof AI_MODELS)[number];
 
 export const CreateChatbotSchema = z.object({
-  name: z.string().min(1).max(100),
-  systemPrompt: z.string().min(1).max(4000),
+  name: z.string().min(1).max(100).default("My Chatbot"),
+  systemPrompt: z.string().min(1).max(4000).default("You are a helpful assistant."),
   tone: z.enum(["professional", "friendly", "casual", "formal"]).default("professional"),
   leadCapture: z.boolean().default(false),
   websiteUrl: z.string().url().optional().nullable(),
