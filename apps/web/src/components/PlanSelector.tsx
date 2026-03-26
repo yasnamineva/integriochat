@@ -84,9 +84,10 @@ export function PlanSelector({ currentPlanId, hasStripeSubscription }: Props) {
           return (
             <div
               key={planId}
-              className={`relative flex flex-col rounded-2xl border p-5 ${
+              onClick={!isCurrent ? () => { void handleSelect(planId); } : undefined}
+              className={`relative flex flex-col rounded-2xl border p-5 transition-shadow ${
                 plan.highlighted ? "border-brand-500 shadow-md" : "border-gray-200"
-              } ${isCurrent ? "bg-brand-50" : "bg-white"}`}
+              } ${isCurrent ? "bg-brand-50" : "bg-white cursor-pointer hover:shadow-lg hover:border-brand-400"}`}
             >
               {plan.highlighted && (
                 <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-500 px-3 py-0.5 text-xs font-semibold text-white">
@@ -153,7 +154,7 @@ export function PlanSelector({ currentPlanId, hasStripeSubscription }: Props) {
               ) : (
                 <Button
                   size="sm"
-                  onClick={() => { void handleSelect(planId); }}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); void handleSelect(planId); }}
                   loading={loading === planId}
                   variant={plan.highlighted ? "primary" : "secondary"}
                 >
