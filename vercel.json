@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm --filter @integriochat/db db:migrate:prod && pnpm --filter web build",
+  "buildCommand": "pnpm --filter web build",
   "outputDirectory": ".next",
   "installCommand": "pnpm install",
   "framework": "nextjs"
