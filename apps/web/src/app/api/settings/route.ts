@@ -8,7 +8,7 @@ export async function GET() {
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, name: true, slug: true, allowedDomains: true },
+      select: { id: true, name: true, slug: true },
     });
 
     if (!tenant) return err("Tenant not found", 404);
@@ -24,19 +24,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const tenantId = await requireTenantId();
 
-    const body = await req.json().catch(() => ({})) as {
-      allowedDomains?: string[];
-      name?: string;
-    };
+    const body = await req.json().catch(() => ({})) as { name?: string };
 
-    const updateData: { allowedDomains?: string[]; name?: string } = {};
-
-    if (Array.isArray(body.allowedDomains)) {
-      // Sanitize: trim, lowercase, remove empties
-      updateData.allowedDomains = body.allowedDomains
-        .map((d) => d.trim().toLowerCase())
-        .filter(Boolean);
-    }
+    const updateData: { name?: string } = {};
 
     if (typeof body.name === "string" && body.name.trim()) {
       updateData.name = body.name.trim();
@@ -49,7 +39,7 @@ export async function PATCH(req: NextRequest) {
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
       data: updateData,
-      select: { id: true, name: true, slug: true, allowedDomains: true },
+      select: { id: true, name: true, slug: true },
     });
 
     return ok(tenant);

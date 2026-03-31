@@ -1,9 +1,11 @@
 import { type NextRequest } from "next/server";
 import OpenAI from "openai";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { prisma } from "@/lib/db";
 import { err } from "@integriochat/utils";
 import { ChatMessageSchema } from "@integriochat/utils";
 import { retrieveContext } from "@/services/embedding.service";
+import { webSearch } from "@/services/search.service";
 import { checkMessageLimit, checkChatbotLimits, reportMessageUsage, logUsage } from "@/services/usage.service";
 
 /**
@@ -11,6 +13,10 @@ import { checkMessageLimit, checkChatbotLimits, reportMessageUsage, logUsage } f
  *
  * Streams an AI response for an embedded chatbot.
  * Public endpoint — authenticated via chatbotId + validated Origin header.
+ *
+ * When webSearchEnabled is true on the chatbot, the model may call the
+ * built-in `web_search` tool (backed by Tavily) to look up real-time
+ * information before composing its final reply.
  *
  * Returns a plain text/event-stream response — each chunk is raw text, NOT
  * the Vercel AI SDK data-stream format (which encodes as `0:"token"`).
@@ -51,7 +57,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Plan-level limit check ────────────────────────────────────────────────
-    // Check BEFORE logging the user message so the count is accurate.
     const limitCheck = await checkMessageLimit(chatbot.tenantId, subscription.plan);
     if (!limitCheck.allowed) {
       return err(
@@ -73,14 +78,19 @@ export async function POST(req: NextRequest) {
     }
 
     // ── CORS: validate Origin against tenant's allowed domains ───────────────
-    // Also allow requests from our own domain (e.g. demo pages, dashboard preview).
     const origin = req.headers.get("origin") ?? "";
     const ownOrigin = process.env["NEXT_PUBLIC_BASE_URL"] ?? "http://localhost:3000";
-    const allowedDomains = chatbot.tenant.allowedDomains;
+    const allowedDomains = chatbot.allowedDomains;
     const originAllowed =
       allowedDomains.length === 0 ||
       origin === ownOrigin ||
-      allowedDomains.some((d) => origin.includes(d));
+      allowedDomains.some((d) => {
+        if (d.startsWith("*.")) {
+          const base = d.slice(2);
+          return origin === `https://${base}` || origin === `http://${base}` || origin.endsWith(`.${base}`);
+        }
+        return origin === `https://${d}` || origin === `http://${d}`;
+      });
     if (!originAllowed) {
       return err("Origin not allowed", 403);
     }
@@ -102,25 +112,27 @@ export async function POST(req: NextRequest) {
       orderBy: { createdAt: "asc" },
       select: { role: true, content: true },
     });
-    // Drop the message we just inserted (last item) — it's passed explicitly below
     const history = allPrev.slice(0, -1).slice(-10);
 
     // ── RAG: retrieve relevant context chunks from pgvector ──────────────────
     const chunks = await retrieveContext(chatbot.id, chatbot.tenantId, message);
 
-    // ── Custom Q&A pairs (highest priority — prepended before website content) ─
+    // ── Custom Q&A pairs (highest priority) ──────────────────────────────────
     const customQAs = await prisma.customQA.findMany({
       where: { chatbotId, tenantId: chatbot.tenantId },
       select: { question: true, answer: true },
       orderBy: { createdAt: "asc" },
     });
 
-    // ── Build system content ─────────────────────────────────────────────────
+    // ── Build system prompt ───────────────────────────────────────────────────
     // SECURITY: user input is NEVER interpolated into the system prompt.
-    // It is always passed as a separate "user" message entry.
     let systemContent = chatbot.systemPrompt;
 
-    // Append fallback instruction when one is configured
+    if (chatbot.webSearchEnabled) {
+      systemContent +=
+        "\n\nYou have access to a `web_search` tool. Use it whenever the user's question requires up-to-date or real-time information (e.g. news, prices, availability, schedules, weather). Do NOT search for information that you already know with confidence or that is in the knowledge base below.";
+    }
+
     if (chatbot.fallbackMsg) {
       systemContent +=
         `\n\nIf you cannot find a relevant answer in the provided context, respond with exactly: "${chatbot.fallbackMsg}"`;
@@ -145,32 +157,197 @@ export async function POST(req: NextRequest) {
         contextBlock;
     }
 
-    // ── Stream via OpenAI ────────────────────────────────────────────────────
-    const openai = new OpenAI();
-    const completion = await openai.chat.completions.create({
-      model: chatbot.aiModel ?? "gpt-4o-mini",
-      temperature: chatbot.temperature ?? 0.7,
-      max_tokens: chatbot.maxTokens ?? 500,
-      stream: true,
-      messages: [
-        { role: "system", content: systemContent },
-        ...history.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-        { role: "user", content: message },
-      ],
-    });
+    // ── Assemble message history ──────────────────────────────────────────────
+    const messages: ChatCompletionMessageParam[] = [
+      { role: "system", content: systemContent },
+      ...history.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+      { role: "user", content: message },
+    ];
 
-    // Capture for usage logging
+    const openai = new OpenAI();
+    const model = chatbot.aiModel ?? "gpt-4o-mini";
+    const temperature = chatbot.temperature ?? 0.7;
+    const max_tokens = chatbot.maxTokens ?? 500;
+
     const tenantId = chatbot.tenantId;
-    // Only report to Stripe Meters for the USAGE (metered) plan
     const stripeCustomerId =
       subscription.plan === "USAGE" ? (subscription.stripeCustomerId ?? null) : null;
     const encoder = new TextEncoder();
 
-    // Plain text stream — iterate OpenAI chunks directly.
-    // Avoids the Vercel AI SDK data-stream encoding (0:"token" format).
+    // ── Web-search path (tool-calling) ────────────────────────────────────────
+    if (chatbot.webSearchEnabled) {
+      const tools: ChatCompletionTool[] = [
+        {
+          type: "function",
+          function: {
+            name: "web_search",
+            description:
+              "Search the internet for real-time information. Use this for current events, live availability, prices, news, weather, and any other time-sensitive queries.",
+            parameters: {
+              type: "object",
+              properties: {
+                query: {
+                  type: "string",
+                  description: "The search query to look up.",
+                },
+              },
+              required: ["query"],
+            },
+          },
+        },
+      ];
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          let fullReply = "";
+
+          try {
+            // ── Phase 1: let the model decide whether to search ─────────────
+            // Buffer this pass silently — we need to inspect finish_reason.
+            const pass1 = await openai.chat.completions.create({
+              model,
+              temperature,
+              max_tokens,
+              stream: true,
+              tools,
+              tool_choice: "auto",
+              messages,
+            });
+
+            let phase1Content = "";
+            let finishReason: string | null = null;
+            const toolCallMap: Record<
+              number,
+              { id: string; name: string; argsRaw: string }
+            > = {};
+
+            for await (const chunk of pass1) {
+              const choice = chunk.choices[0];
+              if (!choice) continue;
+
+              const delta = choice.delta;
+
+              if (delta.content) {
+                phase1Content += delta.content;
+              }
+
+              if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index;
+                  if (!toolCallMap[idx]) {
+                    toolCallMap[idx] = { id: "", name: "", argsRaw: "" };
+                  }
+                  if (tc.id) toolCallMap[idx]!.id = tc.id;
+                  if (tc.function?.name) toolCallMap[idx]!.name += tc.function.name;
+                  if (tc.function?.arguments) toolCallMap[idx]!.argsRaw += tc.function.arguments;
+                }
+              }
+
+              if (choice.finish_reason) finishReason = choice.finish_reason;
+            }
+
+            // ── Tool call execution ─────────────────────────────────────────
+            if (finishReason === "tool_calls" && Object.keys(toolCallMap).length > 0) {
+              // Build assistant message with tool_calls for the follow-up
+              const assistantToolCallMsg: ChatCompletionMessageParam = {
+                role: "assistant",
+                content: phase1Content || null,
+                tool_calls: Object.values(toolCallMap).map((tc) => ({
+                  id: tc.id,
+                  type: "function" as const,
+                  function: { name: tc.name, arguments: tc.argsRaw },
+                })),
+              };
+
+              // Execute each tool call (in parallel when there are multiple)
+              const toolResultMsgs: ChatCompletionMessageParam[] = await Promise.all(
+                Object.values(toolCallMap).map(async (tc) => {
+                  let resultContent: string;
+                  try {
+                    if (tc.name === "web_search") {
+                      const args = JSON.parse(tc.argsRaw) as { query: string };
+                      const { answer, results } = await webSearch(args.query, 5);
+
+                      const parts: string[] = [];
+                      if (answer) parts.push(`Summary: ${answer}`);
+                      results.forEach((r, i) => {
+                        parts.push(`[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`);
+                      });
+                      resultContent = parts.join("\n\n");
+                    } else {
+                      resultContent = `Unknown tool: ${tc.name}`;
+                    }
+                  } catch (e) {
+                    console.error(`[web_search] tool error:`, e);
+                    resultContent = "Search failed. Please try again.";
+                  }
+
+                  return {
+                    role: "tool" as const,
+                    tool_call_id: tc.id,
+                    content: resultContent,
+                  };
+                })
+              );
+
+              // ── Phase 2: stream final answer with search results ───────────
+              const pass2 = await openai.chat.completions.create({
+                model,
+                temperature,
+                max_tokens,
+                stream: true,
+                messages: [...messages, assistantToolCallMsg, ...toolResultMsgs],
+              });
+
+              for await (const chunk of pass2) {
+                const delta = chunk.choices[0]?.delta?.content ?? "";
+                if (delta) {
+                  fullReply += delta;
+                  controller.enqueue(encoder.encode(delta));
+                }
+              }
+            } else {
+              // No tool calls — flush the buffered phase-1 content
+              fullReply = phase1Content;
+              if (fullReply) {
+                controller.enqueue(encoder.encode(fullReply));
+              }
+            }
+          } finally {
+            controller.close();
+          }
+
+          // Post-stream: log + usage
+          try {
+            await prisma.message.create({
+              data: { tenantId, chatbotId, sessionId, role: "assistant", content: fullReply },
+            });
+          } catch (e) {
+            console.error("[POST /api/chat] failed to log assistant message", e);
+          }
+
+          void logUsage(tenantId, chatbotId, systemContent + message, fullReply);
+          if (stripeCustomerId) void reportMessageUsage(stripeCustomerId);
+        },
+      });
+
+      return new Response(stream, {
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    // ── Standard streaming path (no web search) ───────────────────────────────
+    const completion = await openai.chat.completions.create({
+      model,
+      temperature,
+      max_tokens,
+      stream: true,
+      messages,
+    });
+
     const stream = new ReadableStream({
       async start(controller) {
         let fullReply = "";
@@ -186,7 +363,6 @@ export async function POST(req: NextRequest) {
           controller.close();
         }
 
-        // Post-stream: log assistant message and report usage (non-fatal)
         try {
           await prisma.message.create({
             data: { tenantId, chatbotId, sessionId, role: "assistant", content: fullReply },
@@ -196,9 +372,7 @@ export async function POST(req: NextRequest) {
         }
 
         void logUsage(tenantId, chatbotId, systemContent + message, fullReply);
-        if (stripeCustomerId) {
-          void reportMessageUsage(stripeCustomerId);
-        }
+        if (stripeCustomerId) void reportMessageUsage(stripeCustomerId);
       },
     });
 

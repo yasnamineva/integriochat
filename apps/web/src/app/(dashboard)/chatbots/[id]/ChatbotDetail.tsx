@@ -30,9 +30,12 @@ interface Chatbot {
   suggestedQs: string[];
   // API
   apiKey: string;
+  // CORS
+  allowedDomains: string[];
   // Per-chatbot spending caps (USAGE plan)
   monthlyMessageLimit: number | null;
   monthlySpendLimitCents: number | null;
+  webSearchEnabled: boolean;
 }
 
 interface PlanFeatures {
@@ -105,6 +108,7 @@ function formFromChatbot(c: Chatbot) {
     suggestedQs: [...(c.suggestedQs ?? []), "", "", "", ""].slice(0, 4),
     monthlyMessageLimit: c.monthlyMessageLimit ?? null,
     monthlySpendLimitCents: c.monthlySpendLimitCents ?? null,
+    webSearchEnabled: c.webSearchEnabled ?? false,
   };
 }
 
@@ -288,6 +292,45 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [regenLoading, setRegenLoading] = useState(false);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
 
+  // Allowed domains state
+  const [allowedDomains, setAllowedDomains] = useState<string[]>(initial.allowedDomains ?? []);
+  const [newDomain, setNewDomain] = useState("");
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const [domainSaving, setDomainSaving] = useState(false);
+
+  function validateDomain(raw: string): string | null {
+    const d = raw.trim().toLowerCase();
+    if (!d) return "Enter a domain";
+    if (!/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d))
+      return "Enter a valid domain (e.g. example.com or *.example.com)";
+    return null;
+  }
+
+  async function saveDomains(updated: string[]) {
+    setDomainSaving(true);
+    try {
+      const res = await fetch(`/api/chatbots/${chatbot.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowedDomains: updated }),
+      });
+      if (res.ok) setAllowedDomains(updated);
+    } finally {
+      setDomainSaving(false);
+    }
+  }
+
+  async function handleAddDomain(e: React.FormEvent) {
+    e.preventDefault();
+    const domain = newDomain.trim().toLowerCase();
+    const err = validateDomain(domain);
+    if (err) { setDomainError(err); return; }
+    if (allowedDomains.includes(domain)) { setDomainError("Domain already added"); return; }
+    setDomainError(null);
+    await saveDomains([...allowedDomains, domain]);
+    setNewDomain("");
+  }
+
   // Webhooks state
   const [webhooks, setWebhooks] = useState<WebhookRow[]>([]);
   const [webhooksLoaded, setWebhooksLoaded] = useState(false);
@@ -470,7 +513,7 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                 />
               </div>
 
-              <div className="flex items-center gap-6">
+              <div className="flex flex-wrap items-center gap-6">
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
@@ -489,6 +532,26 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                   />
                   Active (accept chat messages)
                 </label>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="webSearchEnabled"
+                    checked={form.webSearchEnabled}
+                    onChange={(e) => { setField("webSearchEnabled", e.target.checked); }}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <label htmlFor="webSearchEnabled" className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Enable real-time web search
+                    </label>
+                    <p className="text-xs text-gray-500">
+                      The bot can search the internet for live information — availability, prices, news, weather, and more. Requires <code className="rounded bg-gray-100 px-1 font-mono text-xs">TAVILY_API_KEY</code> to be set.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>
@@ -950,6 +1013,55 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
       {/* ── Integration tab ── */}
       {activeTab === "integration" && (
         <div className="flex flex-col gap-6">
+
+          {/* Allowed embed domains */}
+          <Card>
+            <CardHeader><CardTitle>Allowed Embed Domains</CardTitle></CardHeader>
+            <p className="mb-4 text-sm text-gray-500">
+              Restrict which websites can embed this chatbot&apos;s widget. Leave empty to allow
+              all origins (not recommended for production).
+            </p>
+
+            {allowedDomains.length > 0 ? (
+              <ul className="mb-4 flex flex-col gap-2">
+                {allowedDomains.map((domain) => (
+                  <li
+                    key={domain}
+                    className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-2"
+                  >
+                    <code className="font-mono text-sm text-gray-700">{domain}</code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { void saveDomains(allowedDomains.filter((d) => d !== domain)); }}
+                      loading={domainSaving}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                No domains set — all origins are currently allowed.
+              </p>
+            )}
+
+            <form onSubmit={(e) => { void handleAddDomain(e); }} className="flex items-end gap-3">
+              <div className="flex-1">
+                <Input
+                  label="Add domain"
+                  placeholder="example.com or *.example.com"
+                  value={newDomain}
+                  onChange={(e) => { setNewDomain(e.target.value); setDomainError(null); }}
+                />
+                {domainError && <p className="mt-1 text-xs text-red-600">{domainError}</p>}
+              </div>
+              <Button type="submit" size="sm" loading={domainSaving}>Add</Button>
+            </form>
+          </Card>
+
           <Card>
             <CardHeader><CardTitle>Embed Snippet</CardTitle></CardHeader>
             <p className="mb-2 text-sm text-gray-500">

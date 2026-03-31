@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS "tenants" (
   "id"             UUID        NOT NULL DEFAULT gen_random_uuid(),
   "name"           TEXT        NOT NULL,
   "slug"           TEXT        NOT NULL,
-  "allowedDomains" TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
   "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "tenants_pkey" PRIMARY KEY ("id")
@@ -79,6 +78,8 @@ CREATE TABLE IF NOT EXISTS "chatbots" (
   "widgetTheme"           TEXT         NOT NULL DEFAULT 'light',
   "initialMessage"        TEXT         NOT NULL DEFAULT 'Hi! How can I help you today?',
   "suggestedQs"           TEXT[]       NOT NULL DEFAULT ARRAY[]::TEXT[],
+  -- CORS: per-chatbot embed domain allowlist
+  "allowedDomains"        TEXT[]       NOT NULL DEFAULT ARRAY[]::TEXT[],
   -- API access
   "apiKey"                TEXT         NOT NULL DEFAULT concat('cb_', replace(gen_random_uuid()::text, '-', '')),
   -- per-chatbot spending caps (USAGE plan)

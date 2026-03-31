@@ -99,8 +99,8 @@ const mockChatbot = {
   isActive: true,
   monthlyMessageLimit: null,
   monthlySpendLimitCents: null,
+  allowedDomains: [],
   tenant: {
-    allowedDomains: [],
     subscriptions: [{ status: "ACTIVE", plan: "HOBBY", stripeUsageItemId: null, createdAt: new Date() }],
   },
 };
@@ -269,10 +269,7 @@ describe("POST /api/chat", () => {
   test("returns 403 when Origin is not in allowedDomains", async () => {
     mockPrisma.chatbot.findFirst.mockResolvedValue({
       ...mockChatbot,
-      tenant: {
-        allowedDomains: ["https://allowed.com"],
-        subscriptions: [{ status: "ACTIVE" }],
-      },
+      allowedDomains: ["allowed.com"],
     });
     const res = await POST(makeRequest(validBody, "https://notallowed.com"));
     expect(res.status).toBe(403);

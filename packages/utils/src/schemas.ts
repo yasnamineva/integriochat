@@ -26,9 +26,13 @@ export const CreateChatbotSchema = z.object({
   suggestedQs: z.array(z.string().max(200)).max(4).default([]),
   // Training
   autoRetrain: z.boolean().default(false),
+  // Web search
+  webSearchEnabled: z.boolean().default(false),
   // Per-chatbot spending caps (USAGE plan only)
   monthlyMessageLimit: z.number().int().min(1).nullable().optional(),
   monthlySpendLimitCents: z.number().int().min(1).nullable().optional(),
+  // CORS: domains that may embed this chatbot's widget
+  allowedDomains: z.array(z.string().min(1).max(253)).max(100).optional(),
 });
 
 export const UpdateChatbotSchema = CreateChatbotSchema.partial();

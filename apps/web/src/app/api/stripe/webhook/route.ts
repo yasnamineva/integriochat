@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
           currentPeriodEnd = new Date(sub.current_period_end * 1000);
 
           // Identify flat-rate vs metered subscription items
-          const usagePriceId = process.env["STRIPE_USAGE_PRICE_ID"];
+          const usagePriceId = process.env["STRIPE_PRICE_USAGE"];
           for (const item of sub.items.data) {
             if (usagePriceId && item.price.id === usagePriceId) {
               stripeUsageItemId = item.id;

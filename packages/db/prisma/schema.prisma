@@ -49,7 +49,7 @@ model Tenant {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name           String
   slug           String   @unique
-  allowedDomains String[] // CORS: widget API validates Origin against this list
+  // allowedDomains moved to Chatbot — each bot controls its own embed CORS list
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -108,8 +108,12 @@ model Chatbot {
   widgetTheme   String    @default("light")         // "light" | "dark"
   initialMessage String   @default("Hi! How can I help you today?")
   suggestedQs   String[]
+  // CORS: restrict which origins can embed this chatbot's widget
+  allowedDomains String[] // e.g. ["example.com", "*.acme.io"] — empty = allow all
   // API access
   apiKey        String    @unique @default(dbgenerated("concat('cb_', replace(gen_random_uuid()::text, '-', ''))"))
+  // Web search (Tavily) — let the bot search the internet in real time
+  webSearchEnabled Boolean @default(false)
   // Per-chatbot spending caps (USAGE plan) — null = no cap
   // monthlyMessageLimit: max user messages per calendar month for this chatbot
   // monthlySpendLimitCents: max billing charge (at 95% margin rate) in USD cents per month
