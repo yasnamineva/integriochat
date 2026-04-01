@@ -75,6 +75,39 @@ export interface ScrapeResult {
 }
 
 /**
+ * Fire-and-forget helper used by chatbot create/update routes.
+ * Marks scrapeStatus → scraping → done/error and stores embeddings.
+ * Errors are swallowed (logged only) so callers can return a response
+ * immediately without waiting for scraping to finish.
+ */
+export function triggerScrapeInBackground(
+  chatbotId: string,
+  tenantId: string,
+  websiteUrl: string,
+  maxPages: number
+): void {
+  void (async () => {
+    try {
+      await prisma.chatbot.update({
+        where: { id: chatbotId },
+        data: { scrapeStatus: "scraping" },
+      });
+      await scrapeAndIndex(websiteUrl, chatbotId, tenantId, maxPages);
+      await prisma.chatbot.update({
+        where: { id: chatbotId },
+        data: { scrapeStatus: "done", lastScrapedAt: new Date() },
+      });
+    } catch (e) {
+      console.error(`[scraper] background scrape failed for chatbot ${chatbotId}:`, e);
+      await prisma.chatbot.update({
+        where: { id: chatbotId },
+        data: { scrapeStatus: "error" },
+      }).catch(() => undefined);
+    }
+  })();
+}
+
+/**
  * Crawl a website starting from startUrl (BFS, same domain, up to MAX_PAGES),
  * chunk extracted text, generate embeddings, and upsert into EmbeddingDocument.
  */

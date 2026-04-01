@@ -3,6 +3,7 @@ import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 import { CreateChatbotSchema } from "@integriochat/utils";
 import { getPlanConfig } from "@/lib/plans";
+import { triggerScrapeInBackground } from "@/services/scraper.service";
 
 export async function GET() {
   try {
@@ -85,6 +86,11 @@ export async function POST(req: NextRequest) {
         ...(autoRetrain !== undefined && { autoRetrain }),
       },
     });
+
+    // Auto-trigger scraping when websiteUrl is provided at creation time
+    if (chatbot.websiteUrl) {
+      triggerScrapeInBackground(chatbot.id, tenantId, chatbot.websiteUrl, plan.limits.scrapePages);
+    }
 
     return ok(chatbot, 201);
   } catch (e) {

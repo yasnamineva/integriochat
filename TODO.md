@@ -6,13 +6,13 @@ Items that are planned but not yet implemented.
 
 ## Features (Schema / DB exists, no implementation)
 
-### Embeddings / RAG
-- `embedding_documents` table and `retrieveContext` service exist, but creating/updating a chatbot does not trigger website scraping or embedding generation.
-- `POST /api/chatbots` and `PATCH /api/chatbots/[id]` need to enqueue a scrape + embed job when `websiteUrl` is set or changed.
-- `autoRetrain` flag is stored in the DB but no background job watches for website changes.
+### Embeddings / RAG — auto-retrain
+- Scraping, embedding, and RAG retrieval are fully implemented (`scraper.service.ts`, `embedding.service.ts`, `/api/chatbots/[id]/scrape`, Training tab UI).
+- `POST /api/chatbots` and `PATCH /api/chatbots/[id]` now auto-trigger `triggerScrapeInBackground` when `websiteUrl` is set or changed.
+- **Remaining**: `autoRetrain` flag still has no background scheduler. A periodic job (Vercel Cron or QStash) should call `POST /api/chatbots/[id]/scrape` for chatbots with `autoRetrain: true` on a daily/weekly schedule.
 
-### Web search toggle
-- `webSearchEnabled` is in the DB and the chat route handles it fully, but there is no toggle in the chatbot UI (`ChatbotDetail.tsx` → Settings tab).
+### Web search toggle — ✅ done
+- Toggle exists in the Settings tab of ChatbotDetail.tsx.
 
 ### Lead capture
 - `leadCapture` boolean is stored per chatbot, but there is no form capture logic in the widget and no UI for reviewing captured leads.

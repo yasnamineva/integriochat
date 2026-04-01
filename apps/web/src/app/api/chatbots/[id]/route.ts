@@ -2,6 +2,8 @@ import { type NextRequest } from "next/server";
 import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 import { UpdateChatbotSchema } from "@integriochat/utils";
+import { getPlanConfig } from "@/lib/plans";
+import { triggerScrapeInBackground } from "@/services/scraper.service";
 
 interface Params {
   params: { id: string };
@@ -58,12 +60,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       data: updateData,
     });
 
-    if (websiteChanged && updated.autoRetrain && updated.websiteUrl) {
-      // Fire-and-forget: mark as scraping, actual job would be queued
-      void prisma.chatbot.update({
-        where: { id: params.id },
-        data: { scrapeStatus: "scraping" },
+    // Re-scrape whenever the URL changes (regardless of autoRetrain)
+    if (websiteChanged && updated.websiteUrl) {
+      const subscription = await prisma.subscription.findFirst({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        select: { plan: true },
       });
+      const maxPages = getPlanConfig(subscription?.plan ?? "FREE").limits.scrapePages;
+      triggerScrapeInBackground(params.id, tenantId, updated.websiteUrl, maxPages);
     }
 
     return ok(updated);

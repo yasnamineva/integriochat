@@ -1,8 +1,15 @@
+jest.mock("@/services/scraper.service", () => ({
+  triggerScrapeInBackground: jest.fn(),
+}));
+
 const mockPrisma = {
   chatbot: {
     findFirst: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+  },
+  subscription: {
+    findFirst: jest.fn(),
   },
 };
 

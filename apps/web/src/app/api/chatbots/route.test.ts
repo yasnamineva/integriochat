@@ -1,3 +1,7 @@
+jest.mock("@/services/scraper.service", () => ({
+  triggerScrapeInBackground: jest.fn(),
+}));
+
 const mockChatbots = [
   { id: "bot-1", name: "Bot One", tone: "professional", isActive: true, leadCapture: false, createdAt: new Date("2024-01-01") },
   { id: "bot-2", name: "Bot Two", tone: "friendly", isActive: false, leadCapture: true, createdAt: new Date("2024-01-02") },
