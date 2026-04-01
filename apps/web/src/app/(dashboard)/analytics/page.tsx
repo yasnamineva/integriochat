@@ -50,6 +50,16 @@ export default async function AnalyticsPage() {
   const planConfig = getPlanConfig((subscription?.plan as PlanId | undefined) ?? "FREE");
   const msgLimit = planConfig.limits.messagesPerMonth;
 
+  // Unique conversations this month (distinct sessionIds)
+  const uniqueSessionsRaw = await prisma.message.groupBy({
+    by: ["sessionId"],
+    where: { tenantId, role: "user", createdAt: { gte: startOfMonth } },
+    _count: { id: true },
+  });
+  const uniqueSessionCount = uniqueSessionsRaw.length;
+  const avgMsgPerSession =
+    uniqueSessionCount === 0 ? 0 : Math.round(thisMonthMessages / uniqueSessionCount);
+
   // Per-bot breakdown (this month)
   const perBotRaw = await prisma.message.groupBy({
     by: ["chatbotId"],
@@ -139,11 +149,11 @@ export default async function AnalyticsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">Avg / Active Bot</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-500">Conversations</CardTitle>
           </CardHeader>
-          <p className="text-3xl font-bold text-gray-900">{avgPerBot.toLocaleString()}</p>
+          <p className="text-3xl font-bold text-gray-900">{uniqueSessionCount.toLocaleString()}</p>
           <p className="mt-1 text-xs text-gray-400">
-            {activeBotCount} active this month
+            ~{avgMsgPerSession} msg / session
           </p>
         </Card>
       </div>

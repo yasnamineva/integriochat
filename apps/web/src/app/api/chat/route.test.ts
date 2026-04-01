@@ -25,6 +25,10 @@ jest.mock("@/services/usage.service", () => ({
   logUsage: jest.fn(),
 }));
 
+jest.mock("@/services/webhook.service", () => ({
+  dispatchWebhookEvent: jest.fn(),
+}));
+
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 
 import { NextRequest } from "next/server";

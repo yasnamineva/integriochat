@@ -17,10 +17,12 @@ Items that are planned but not yet implemented.
 ### Lead capture
 - `leadCapture` boolean is stored per chatbot, but there is no form capture logic in the widget and no UI for reviewing captured leads.
 
-### Webhooks
+### Webhooks — ✅ delivery implemented
 - `webhooks` table exists (URL, events array, secret).
-- No delivery mechanism — events are never sent to the webhook URL.
-- No UI to create / manage / test webhooks.
+- `dispatchWebhookEvent()` in `webhook.service.ts` signs payloads with HMAC-SHA256 and POSTs to all active, subscribed endpoints.
+- `message.completed` and `conversation.started` events are fired from `/api/chat`.
+- `lead.captured` event is exported but not yet wired (lead capture form not yet built).
+- UI to create / manage / test webhooks is in ChatbotDetail Integration tab.
 
 ### Demo links
 - `demo_links` table exists (token, expiresAt).
@@ -39,9 +41,9 @@ Items that are planned but not yet implemented.
 
 ## Analytics
 
-### Session-level metrics
-- Current analytics counts raw messages; there is no session-level grouping.
-- Useful additions: unique conversation count, average messages per session, sessions with no reply (unresolved).
+### Session-level metrics — ✅ partially done
+- Analytics page now shows unique conversation count and average messages per session (via `sessionId` groupBy).
+- Sessions with no reply (unresolved) and resolution tracking are still not implemented.
 
 ### Resolution tracking
 - No way to mark or detect whether a conversation was "resolved".
@@ -50,12 +52,11 @@ Items that are planned but not yet implemented.
 
 ## UX / Onboarding
 
-### Empty-state onboarding
-- After signup the dashboard shows empty lists with no guidance.
-- A first-run wizard (e.g. "Create your first chatbot") would reduce drop-off.
+### Empty-state onboarding — ✅ done
+- Chatbots list page now shows a full onboarding card with icon, description, and CTA when no chatbots exist.
 
-### In-dashboard chatbot preview
-- Users can configure a chatbot but cannot test-chat with it inside the dashboard before embedding it.
+### In-dashboard chatbot preview — ✅ done
+- ChatbotDetail now has a "Preview" tab with a live test-chat interface that streams responses from `/api/chat`.
 
 ---
 

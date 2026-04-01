@@ -68,7 +68,7 @@ interface Props {
   isUsagePlan?: boolean;
 }
 
-type Tab = "settings" | "appearance" | "training" | "integration";
+type Tab = "settings" | "appearance" | "training" | "integration" | "preview";
 
 const AI_MODELS = [
   { value: "gpt-4o-mini", label: "GPT-4o Mini — fast & cost-efficient (recommended)" },
@@ -131,6 +131,61 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [demoLink, setDemoLink] = useState<{ url: string; expiresAt: string } | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [demoCopied, setDemoCopied] = useState(false);
+
+  // Preview / test-chat state
+  const [previewMessages, setPreviewMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [previewInput, setPreviewInput] = useState("");
+  const [previewSending, setPreviewSending] = useState(false);
+  const previewSessionId = useRef(`preview-${chatbot.id}-${Date.now()}`);
+  const previewEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    previewEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [previewMessages]);
+
+  async function handlePreviewSend() {
+    const msg = previewInput.trim();
+    if (!msg || previewSending) return;
+    setPreviewInput("");
+    setPreviewMessages((prev) => [...prev, { role: "user", content: msg }]);
+    setPreviewSending(true);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatbotId: chatbot.id, sessionId: previewSessionId.current, message: msg }),
+      });
+      if (!res.ok || !res.body) {
+        const errData = (await res.json().catch(() => ({}))) as { error?: string };
+        setPreviewMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: errData.error ?? "Error: could not get a response." },
+        ]);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let reply = "";
+      setPreviewMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        reply += decoder.decode(value, { stream: true });
+        setPreviewMessages((prev) => {
+          const next = [...prev];
+          next[next.length - 1] = { role: "assistant", content: reply };
+          return next;
+        });
+      }
+    } catch {
+      setPreviewMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Error: could not reach the chatbot." },
+      ]);
+    } finally {
+      setPreviewSending(false);
+    }
+  }
 
   // Website training state
   const [scraping, setScraping] = useState(false);
@@ -393,6 +448,7 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
     { id: "appearance", label: "Appearance" },
     { id: "training", label: "Training" },
     { id: "integration", label: "Integration" },
+    { id: "preview", label: "Preview" },
   ];
 
   return (
@@ -1223,6 +1279,78 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
               </div>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* ── Preview tab ── */}
+      {activeTab === "preview" && (
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Test Chat</CardTitle>
+            </CardHeader>
+            <p className="text-sm text-gray-500 mb-4">
+              Send messages to your chatbot directly from the dashboard. This uses the same API as the embedded widget.
+            </p>
+
+            {/* Message list */}
+            <div className="flex flex-col gap-3 rounded-lg bg-gray-50 p-4 min-h-[300px] max-h-[500px] overflow-y-auto">
+              {previewMessages.length === 0 && (
+                <p className="text-center text-sm text-gray-400 my-auto">
+                  Send a message to start testing your chatbot.
+                </p>
+              )}
+              {previewMessages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+                      m.role === "user"
+                        ? "bg-brand-500 text-white rounded-br-sm"
+                        : "bg-white text-gray-800 border border-gray-200 rounded-bl-sm"
+                    }`}
+                  >
+                    {m.content || <span className="italic text-gray-400">Thinking…</span>}
+                  </div>
+                </div>
+              ))}
+              <div ref={previewEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={previewInput}
+                onChange={(e) => { setPreviewInput(e.target.value); }}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handlePreviewSend(); } }}
+                placeholder="Type a message…"
+                disabled={previewSending}
+                className="flex-1"
+              />
+              <Button
+                onClick={() => { void handlePreviewSend(); }}
+                disabled={previewSending || !previewInput.trim()}
+                size="sm"
+              >
+                {previewSending ? "…" : "Send"}
+              </Button>
+            </div>
+
+            {previewMessages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewMessages([]);
+                  previewSessionId.current = `preview-${chatbot.id}-${Date.now()}`;
+                }}
+                className="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Clear conversation
+              </button>
+            )}
+          </Card>
         </div>
       )}
     </div>

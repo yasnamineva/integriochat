@@ -7,6 +7,7 @@ import { ChatMessageSchema } from "@integriochat/utils";
 import { retrieveContext } from "@/services/embedding.service";
 import { webSearch } from "@/services/search.service";
 import { checkMessageLimit, checkChatbotLimits, reportMessageUsage, logUsage } from "@/services/usage.service";
+import { dispatchWebhookEvent } from "@/services/webhook.service";
 
 /**
  * POST /api/chat
@@ -113,6 +114,14 @@ export async function POST(req: NextRequest) {
       select: { role: true, content: true },
     });
     const history = allPrev.slice(0, -1).slice(-10);
+
+    // First message in this session → fire conversation.started webhook
+    const isFirstMessage = allPrev.length === 1;
+    if (isFirstMessage) {
+      void dispatchWebhookEvent(chatbotId, "conversation.started", sessionId, {
+        chatbotId,
+      });
+    }
 
     // ── RAG: retrieve relevant context chunks from pgvector ──────────────────
     const chunks = await retrieveContext(chatbot.id, chatbot.tenantId, message);
@@ -331,6 +340,10 @@ export async function POST(req: NextRequest) {
 
           void logUsage(tenantId, chatbotId, systemContent + message, fullReply);
           if (stripeCustomerId) void reportMessageUsage(stripeCustomerId);
+          void dispatchWebhookEvent(chatbotId, "message.completed", sessionId, {
+            message,
+            reply: fullReply,
+          });
         },
       });
 
@@ -373,6 +386,10 @@ export async function POST(req: NextRequest) {
 
         void logUsage(tenantId, chatbotId, systemContent + message, fullReply);
         if (stripeCustomerId) void reportMessageUsage(stripeCustomerId);
+        void dispatchWebhookEvent(chatbotId, "message.completed", sessionId, {
+          message,
+          reply: fullReply,
+        });
       },
     });
 
