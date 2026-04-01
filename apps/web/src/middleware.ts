@@ -47,6 +47,11 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // ── Stripe webhook is authenticated by signature, not session ───────────
+  if (pathname === "/api/stripe/webhook") {
+    return NextResponse.next();
+  }
+
   // ── Auth guard for protected routes ──────────────────────────────────────
   const isProtectedApi = PROTECTED_API_PATHS.some((p) => pathname.startsWith(p));
   const isProtectedPage = PROTECTED_PAGE_PATHS.some((p) => pathname.startsWith(p));
