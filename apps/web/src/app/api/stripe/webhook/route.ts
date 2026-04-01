@@ -2,6 +2,24 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/db";
 import type { SubscriptionStatus, Plan } from "@integriochat/db";
+import { PLANS } from "@/lib/plans";
+
+/**
+ * Reverse-map a Stripe price ID to our internal Plan enum by scanning all
+ * configured STRIPE_PRICE_* env vars. Returns null if no match is found
+ * (e.g. the subscription was created outside of this app).
+ */
+function priceIdToPlan(priceId: string): Plan | null {
+  for (const config of Object.values(PLANS)) {
+    if (config.stripePriceEnvKey) {
+      if (process.env[config.stripePriceEnvKey] === priceId) return config.id;
+    }
+    if (config.stripeAnnualPriceEnvKey) {
+      if (process.env[config.stripeAnnualPriceEnvKey] === priceId) return config.id;
+    }
+  }
+  return null;
+}
 
 /** Map Stripe subscription statuses to our DB enum. */
 function toDbStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
@@ -173,17 +191,27 @@ export async function POST(req: NextRequest) {
         const usagePriceId = process.env["STRIPE_PRICE_USAGE"];
         let stripeItemId: string | null = null;
         let stripeUsageItemId: string | null = null;
+        let resolvedPlan: Plan | null = null;
         for (const item of sub.items.data) {
           if (usagePriceId && item.price.id === usagePriceId) {
             stripeUsageItemId = item.id;
+            resolvedPlan = "USAGE";
           } else {
             stripeItemId = item.id;
+            resolvedPlan = priceIdToPlan(item.price.id) ?? resolvedPlan;
           }
         }
 
         await prisma.subscription.update({
           where: { id: dbSub.id },
-          data: { status, currentPeriodEnd, stripeItemId, stripeUsageItemId },
+          data: {
+            status,
+            currentPeriodEnd,
+            stripeItemId,
+            stripeUsageItemId,
+            // Only update plan if we could resolve it; keeps existing value otherwise
+            ...(resolvedPlan ? { plan: resolvedPlan } : {}),
+          },
         });
 
         console.log(`[Stripe] customer.subscription.updated — ${sub.id} → ${status}`);

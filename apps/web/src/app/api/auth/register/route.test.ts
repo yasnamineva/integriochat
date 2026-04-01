@@ -34,6 +34,7 @@ beforeEach(() => {
     const user = { id: "user-uuid", email: "admin@acme.com", name: "Alice", tenantId: "tenant-uuid", role: "ADMIN" };
     const txMock = {
       tenant: { create: jest.fn().mockResolvedValue(tenant) },
+      subscription: { create: jest.fn().mockResolvedValue({}) },
       user: { create: jest.fn().mockResolvedValue(user) },
     };
     return fn(txMock as unknown as typeof mockPrisma);
@@ -86,6 +87,7 @@ describe("POST /api/auth/register", () => {
             return Promise.resolve({ id: "t1", ...data });
           }),
         },
+        subscription: { create: jest.fn().mockResolvedValue({}) },
         user: { create: jest.fn().mockResolvedValue({ id: "u1", email: "x@x.com", name: null, tenantId: "t1", role: "ADMIN" }) },
       };
       return fn(txMock);
@@ -110,6 +112,7 @@ describe("POST /api/auth/register", () => {
             return Promise.resolve({ id: "t1", ...data });
           }),
         },
+        subscription: { create: jest.fn().mockResolvedValue({}) },
         user: { create: jest.fn().mockResolvedValue({ id: "u1", email: "admin@acme.com", name: "Alice", tenantId: "t1", role: "ADMIN" }) },
       };
       return fn(txMock);

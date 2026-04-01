@@ -9,9 +9,9 @@ import type { PlanId } from "@/lib/plans";
  * POST /api/stripe/checkout
  * Body: { plan?: PlanId, annual?: boolean }
  *
- * - FREE plan → no-op (just return success, no Stripe session needed)
- * - Existing customer with active Stripe subscription → Customer Portal
- * - New customer → Checkout Session for the requested plan (monthly or annual)
+ * - Active subscription → direct upgrade via Stripe subscriptions.update API
+ * - Existing customer but no active subscription → new Checkout Session
+ * - New customer → create Stripe customer + Checkout Session
  */
 export async function POST(req: NextRequest) {
   try {
@@ -30,25 +30,6 @@ export async function POST(req: NextRequest) {
     // Annual billing only applies to flat-rate plans (not USAGE which is metered)
     const annual = body.annual === true && planId !== "USAGE";
 
-    const stripe = new Stripe(secretKey);
-
-    const subscription = await prisma.subscription.findFirst({
-      where: { tenantId },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // ── Existing Stripe customer → Customer Portal for plan changes ──────────
-    // The portal shows the prorated charge and requires the user to confirm
-    // before any billing change takes effect.
-    if (subscription?.stripeCustomerId) {
-      const portalSession = await stripe.billingPortal.sessions.create({
-        customer: subscription.stripeCustomerId,
-        return_url: `${baseUrl}/billing`,
-      });
-      return ok({ url: portalSession.url });
-    }
-
-    // ── New or unlinked customer → Checkout Session ───────────────────────────
     const priceId = getStripePriceId(planId, annual);
     if (!priceId) {
       return err(
@@ -58,6 +39,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const stripe = new Stripe(secretKey);
+
+    const subscription = await prisma.subscription.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // ── Active subscription → direct upgrade via Stripe API ──────────────────
+    // Resolve the subscription item ID needed for the items[] update. When
+    // stripeItemId is missing we fall back to retrieving the subscription.
+    if (subscription?.stripeSubscriptionId) {
+      let itemId = subscription.stripeItemId ?? null;
+      if (!itemId) {
+        const sub = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+        itemId = sub.items.data[0]?.id ?? null;
+      }
+      if (!itemId) return err("Could not find subscription item to update", 500);
+
+      await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+        items: [{ id: itemId, price: priceId }],
+        proration_behavior: "create_prorations",
+        metadata: { tenantId, plan: planId },
+      });
+
+      await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: { plan: planId, billingPeriod: annual ? "ANNUAL" : "MONTHLY", stripeItemId: itemId },
+      });
+
+      return ok({ upgraded: true });
+    }
+
+    // ── No active subscription → Checkout Session ─────────────────────────────
     let customerId = subscription?.stripeCustomerId ?? undefined;
     if (!customerId) {
       const customer = await stripe.customers.create({ metadata: { tenantId } });
