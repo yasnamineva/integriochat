@@ -18,10 +18,11 @@ export async function POST(req: NextRequest) {
     await prisma.passwordResetToken.deleteMany({ where: { email } });
 
     const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     await prisma.passwordResetToken.create({
-      data: { email, token, expiresAt },
+      data: { email, token: tokenHash, expiresAt },
     });
 
     await sendPasswordResetEmail(email, token);

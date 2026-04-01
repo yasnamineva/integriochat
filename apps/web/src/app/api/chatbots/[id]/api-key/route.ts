@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
+import { getPlanConfig } from "@/lib/plans";
 
 interface Params {
   params: { id: string };
@@ -15,6 +16,16 @@ interface Params {
 export async function POST(_req: NextRequest, { params }: Params) {
   try {
     const tenantId = await requireTenantId();
+
+    const subscription = await prisma.subscription.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+      select: { plan: true },
+    });
+    const plan = getPlanConfig(subscription?.plan ?? "FREE");
+    if (!plan.features.apiAccess) {
+      return err("API access requires HOBBY plan or higher. Upgrade your plan to continue.", 403);
+    }
 
     const chatbot = await prisma.chatbot.findFirst({
       where: { id: params.id, tenantId },

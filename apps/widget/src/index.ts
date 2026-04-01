@@ -2,7 +2,10 @@ import { getWidgetHTML } from "./ui.js";
 import { fetchConfig, sendMessage } from "./api.js";
 
 function newSessionId(): string {
-  return `sess_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `sess_${hex}`;
 }
 
 async function mountWidget(botId: string): Promise<void> {

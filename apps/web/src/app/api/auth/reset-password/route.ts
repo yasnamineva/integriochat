@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 
@@ -16,10 +17,12 @@ export async function POST(req: NextRequest) {
       return err("Password must be at least 8 characters", 422);
     }
 
-    const record = await prisma.passwordResetToken.findUnique({ where: { token } });
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const record = await prisma.passwordResetToken.findUnique({ where: { token: tokenHash } });
     if (!record) return err("Invalid or expired reset link", 400);
     if (record.expiresAt < new Date()) {
-      await prisma.passwordResetToken.delete({ where: { token } });
+      await prisma.passwordResetToken.delete({ where: { token: tokenHash } });
       return err("Reset link has expired — please request a new one", 400);
     }
 
@@ -33,7 +36,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Single-use token — delete after successful reset
-    await prisma.passwordResetToken.delete({ where: { token } });
+    await prisma.passwordResetToken.delete({ where: { token: tokenHash } });
 
     return ok({ reset: true });
   } catch (e) {
