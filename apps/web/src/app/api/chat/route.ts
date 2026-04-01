@@ -384,3 +384,22 @@ export async function POST(req: NextRequest) {
     return err("Internal server error", 500);
   }
 }
+
+/**
+ * OPTIONS /api/chat
+ *
+ * Handles CORS preflight requests from the widget on third-party domains.
+ * The actual origin validation happens in POST; here we just allow the
+ * browser to proceed to the real request.
+ */
+export function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
+}
