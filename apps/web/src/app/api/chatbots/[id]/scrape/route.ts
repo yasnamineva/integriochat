@@ -40,7 +40,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     const [chatbot, subscription] = await Promise.all([
       prisma.chatbot.findFirst({
         where: { id: params.id, tenantId },
-        select: { id: true, websiteUrl: true, scrapeStatus: true },
+        select: { id: true, websiteUrl: true, scrapeStatus: true, updatedAt: true },
       }),
       prisma.subscription.findFirst({
         where: { tenantId },
@@ -51,7 +51,15 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
     if (!chatbot) return err("Chatbot not found", 404);
     if (!chatbot.websiteUrl) return err("No website URL configured", 400);
-    if (chatbot.scrapeStatus === "scraping") return err("Scraping already in progress", 409);
+
+    if (chatbot.scrapeStatus === "scraping") {
+      // Allow re-scraping if the last status update is older than 10 minutes —
+      // that means a previous run was killed (e.g. Vercel function timeout) and
+      // never transitioned to "done" or "error".
+      const stale = Date.now() - chatbot.updatedAt.getTime() > 10 * 60 * 1000;
+      if (!stale) return err("Scraping already in progress", 409);
+      // Fall through — will reset to "scraping" again below
+    }
 
     const maxPages = getPlanConfig(subscription?.plan ?? "FREE").limits.scrapePages;
 

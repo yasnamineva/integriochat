@@ -193,18 +193,18 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [scrapeResult, setScrapeResult] = useState<{ pagesScraped: number; chunksIndexed: number } | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
 
-  // Staleness guard: if scrapeStatus is stuck on "scraping" from a previous
-  // session (e.g. a timed-out serverless function), reset it locally after
-  // a short polling window so the user can retry.
+  // If the page loads with scrapeStatus already "scraping" (left over from a
+  // previous killed session), poll the server for up to 30 s. After that,
+  // treat it as stale so the user can retry — the /scrape route also accepts
+  // re-scraping over a status older than 10 minutes.
   useEffect(() => {
     if (chatbot.scrapeStatus !== "scraping" || scraping) return;
     const start = Date.now();
     const intervalId = setInterval(async () => {
-      // After 2 minutes with no local progress, treat as stale
-      if (Date.now() - start > 120_000) {
+      if (Date.now() - start > 30_000) {
         clearInterval(intervalId);
         setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
-        setScrapeError("Training timed out — click Re-train to try again.");
+        setScrapeError("Previous training session did not complete. Click Re-train to try again.");
         return;
       }
       try {
@@ -344,6 +344,7 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let streamCompleted = false; // set to true when we receive "done" or "error"
 
       while (true) {
         const { done, value } = await reader.read();
@@ -369,14 +370,24 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
             } else if (event.type === "page") {
               setScrapeProgress({ done: event.done, total: event.total });
             } else if (event.type === "done") {
+              streamCompleted = true;
               setScrapeResult({ pagesScraped: event.pagesScraped, chunksIndexed: event.chunksIndexed });
               setChatbot((c) => ({ ...c, scrapeStatus: "done", lastScrapedAt: new Date() }));
             } else if (event.type === "error") {
+              streamCompleted = true;
               setScrapeError(event.message ?? "Scraping failed");
               setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
             }
           } catch { /* malformed event — skip */ }
         }
+      }
+
+      // Stream closed without a terminal event — the function was likely killed
+      // (Vercel timeout). Surface it immediately; the /scrape route accepts
+      // re-scraping over a stale status so the user can retry right away.
+      if (!streamCompleted) {
+        setScrapeError("Training was interrupted (function timeout). Click Re-train to try again.");
+        setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
       }
     } catch {
       setScrapeError("Network error — please try again");
