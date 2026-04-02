@@ -74,11 +74,17 @@ export interface ScrapeResult {
   chunksSkipped: number;
 }
 
+export interface ScrapeProgress {
+  done: number;
+  total: number;
+  url: string;
+}
+
 /**
- * Fire-and-forget helper used by chatbot create/update routes.
- * Marks scrapeStatus → scraping → done/error and stores embeddings.
- * Errors are swallowed (logged only) so callers can return a response
- * immediately without waiting for scraping to finish.
+ * Fire-and-forget helper used by the auto-retrain cron job.
+ * NOTE: only use this from long-lived contexts (cron). In serverless routes
+ * use the SSE-streaming POST /scrape endpoint instead, which keeps the
+ * connection open for the full duration of the scrape.
  */
 export function triggerScrapeInBackground(
   chatbotId: string,
@@ -108,14 +114,19 @@ export function triggerScrapeInBackground(
 }
 
 /**
- * Crawl a website starting from startUrl (BFS, same domain, up to MAX_PAGES),
- * chunk extracted text, generate embeddings, and upsert into EmbeddingDocument.
+ * Crawl a website starting from startUrl (BFS, same domain, up to maxPages),
+ * chunk extracted text, generate embeddings in parallel per page, and upsert
+ * into EmbeddingDocument.
+ *
+ * onProgress is called after each page is visited (before embedding) so
+ * callers can stream progress to clients in real time.
  */
 export async function scrapeAndIndex(
   startUrl: string,
   chatbotId: string,
   tenantId: string,
-  maxPages = MAX_PAGES
+  maxPages = MAX_PAGES,
+  onProgress?: (p: ScrapeProgress) => void
 ): Promise<ScrapeResult> {
   const base = new URL(startUrl);
   const queue = [startUrl];
@@ -128,6 +139,8 @@ export async function scrapeAndIndex(
     if (visited.has(url)) continue;
     visited.add(url);
 
+    onProgress?.({ done: visited.size, total: maxPages, url });
+
     const html = await fetchPage(url);
     if (!html) continue;
 
@@ -139,40 +152,43 @@ export async function scrapeAndIndex(
       }
     }
 
-    // Chunk the text and upsert embeddings
+    // Chunk the text
     const text = extractText(html);
     if (!text) continue;
     const chunks = chunkText(text);
 
-    for (const chunk of chunks) {
-      const contentHash = createHash("sha256").update(chunk).digest("hex");
+    // Generate all embeddings for this page in parallel (big speedup vs sequential)
+    const results = await Promise.allSettled(
+      chunks.map(async (chunk) => {
+        const contentHash = createHash("sha256").update(chunk).digest("hex");
 
-      // Skip if already indexed and unchanged
-      const existing = await prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM embedding_documents
-        WHERE "chatbotId" = ${chatbotId}::uuid
-          AND "contentHash" = ${contentHash}
-        LIMIT 1
-      `;
-      if (existing.length > 0) {
-        chunksSkipped++;
-        continue;
+        const existing = await prisma.$queryRaw<{ id: string }[]>`
+          SELECT id FROM embedding_documents
+          WHERE "chatbotId" = ${chatbotId}::uuid
+            AND "contentHash" = ${contentHash}
+          LIMIT 1
+        `;
+        if (existing.length > 0) return "skipped" as const;
+
+        const embedding = await generateEmbedding(chunk);
+        const vectorStr = `[${embedding.join(",")}]`;
+
+        await prisma.$executeRaw`
+          INSERT INTO embedding_documents
+            ("tenantId", "chatbotId", "content", "sourceUrl", "contentHash", "embedding", "updatedAt")
+          VALUES
+            (${tenantId}::uuid, ${chatbotId}::uuid, ${chunk}, ${url}, ${contentHash}, ${vectorStr}::vector, now())
+          ON CONFLICT DO NOTHING
+        `;
+        return "indexed" as const;
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "indexed") chunksIndexed++;
+        else chunksSkipped++;
       }
-
-      // Generate embedding
-      const embedding = await generateEmbedding(chunk);
-      const vectorStr = `[${embedding.join(",")}]`;
-
-      // Upsert the document (delete old same-source-url chunk with same hash if needed)
-      await prisma.$executeRaw`
-        INSERT INTO embedding_documents
-          ("tenantId", "chatbotId", "content", "sourceUrl", "contentHash", "embedding", "updatedAt")
-        VALUES
-          (${tenantId}::uuid, ${chatbotId}::uuid, ${chunk}, ${url}, ${contentHash}, ${vectorStr}::vector, now())
-        ON CONFLICT DO NOTHING
-      `;
-
-      chunksIndexed++;
     }
   }
 

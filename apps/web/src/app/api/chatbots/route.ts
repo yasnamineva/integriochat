@@ -3,7 +3,6 @@ import { prisma, requireTenantId } from "@/lib/db";
 import { ok, err } from "@integriochat/utils";
 import { CreateChatbotSchema } from "@integriochat/utils";
 import { getPlanConfig } from "@/lib/plans";
-import { triggerScrapeInBackground } from "@/services/scraper.service";
 
 export async function GET() {
   try {
@@ -88,10 +87,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Auto-trigger scraping when websiteUrl is provided at creation time
-    if (chatbot.websiteUrl) {
-      triggerScrapeInBackground(chatbot.id, tenantId, chatbot.websiteUrl, plan.limits.scrapePages);
-    }
+    // Scraping is intentionally NOT auto-triggered here.
+    // Background fire-and-forget is unreliable on Vercel serverless (the
+    // function is terminated when the HTTP response is returned, before the
+    // scrape can complete). Users click "Train Now" in the Training tab which
+    // uses a streaming SSE endpoint that keeps the connection open.
 
     return ok(chatbot, 201);
   } catch (e) {

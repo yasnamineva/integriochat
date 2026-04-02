@@ -189,13 +189,24 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
 
   // Website training state
   const [scraping, setScraping] = useState(false);
+  const [scrapeProgress, setScrapeProgress] = useState<{ done: number; total: number } | null>(null);
   const [scrapeResult, setScrapeResult] = useState<{ pagesScraped: number; chunksIndexed: number } | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
 
-  // Poll server when a background scrape is running (auto-triggered at creation or by cron)
+  // Staleness guard: if scrapeStatus is stuck on "scraping" from a previous
+  // session (e.g. a timed-out serverless function), reset it locally after
+  // a short polling window so the user can retry.
   useEffect(() => {
     if (chatbot.scrapeStatus !== "scraping" || scraping) return;
+    const start = Date.now();
     const intervalId = setInterval(async () => {
+      // After 2 minutes with no local progress, treat as stale
+      if (Date.now() - start > 120_000) {
+        clearInterval(intervalId);
+        setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
+        setScrapeError("Training timed out — click Re-train to try again.");
+        return;
+      }
       try {
         const res = await fetch(`/api/chatbots/${chatbot.id}`);
         if (!res.ok) return;
@@ -207,7 +218,7 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
           lastScrapedAt: d.data!.lastScrapedAt ? new Date(d.data!.lastScrapedAt) : null,
         }));
       } catch { /* ignore */ }
-    }, 3000);
+    }, 5000);
     return () => clearInterval(intervalId);
   }, [chatbot.id, chatbot.scrapeStatus, scraping]);
 
@@ -316,21 +327,64 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
     setScraping(true);
     setScrapeError(null);
     setScrapeResult(null);
+    setScrapeProgress(null);
     setChatbot((c) => ({ ...c, scrapeStatus: "scraping" }));
     try {
       const res = await fetch(`/api/chatbots/${chatbot.id}/scrape`, { method: "POST" });
-      const data = await res.json() as { data?: { pagesScraped: number; chunksIndexed: number }; error?: string };
-      if (!res.ok) {
+
+      // Non-streaming error (e.g. 409 already in progress, 404, etc.)
+      if (!res.ok || !res.body) {
+        const data = await res.json() as { error?: string };
         setScrapeError(data.error ?? "Scraping failed");
         setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
         return;
       }
-      setScrapeResult(data.data ?? null);
-      setChatbot((c) => ({ ...c, scrapeStatus: "done", lastScrapedAt: new Date() }));
+
+      // Read the SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE events are separated by double newlines
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6)) as
+              | { type: "start"; total: number }
+              | { type: "page"; done: number; total: number }
+              | { type: "done"; pagesScraped: number; chunksIndexed: number }
+              | { type: "error"; message: string };
+
+            if (event.type === "start") {
+              setScrapeProgress({ done: 0, total: event.total });
+            } else if (event.type === "page") {
+              setScrapeProgress({ done: event.done, total: event.total });
+            } else if (event.type === "done") {
+              setScrapeResult({ pagesScraped: event.pagesScraped, chunksIndexed: event.chunksIndexed });
+              setChatbot((c) => ({ ...c, scrapeStatus: "done", lastScrapedAt: new Date() }));
+            } else if (event.type === "error") {
+              setScrapeError(event.message ?? "Scraping failed");
+              setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
+            }
+          } catch { /* malformed event — skip */ }
+        }
+      }
     } catch {
       setScrapeError("Network error — please try again");
       setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
-    } finally { setScraping(false); }
+    } finally {
+      setScraping(false);
+      setScrapeProgress(null);
+    }
   }
 
   async function handleAddQa() {
@@ -1022,15 +1076,29 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                 </div>
                 {chatbot.scrapeStatus === "scraping" && (
                   <div className="rounded-md border border-indigo-100 bg-indigo-50 px-3 py-3">
-                    <div className="mb-2 flex items-center gap-2">
-                      <svg className="h-4 w-4 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      <span className="text-sm font-medium text-indigo-700">Training in progress…</span>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <svg className="h-4 w-4 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <span className="text-sm font-medium text-indigo-700">Training in progress…</span>
+                      </div>
+                      {scrapeProgress && (
+                        <span className="font-mono text-xs text-indigo-600">
+                          {scrapeProgress.done} / {scrapeProgress.total} pages
+                        </span>
+                      )}
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-indigo-100">
-                      <div className="h-full animate-pulse rounded-full bg-indigo-400" />
+                      {scrapeProgress && scrapeProgress.total > 0 ? (
+                        <div
+                          className="h-full rounded-full bg-indigo-400 transition-all duration-500 ease-out"
+                          style={{ width: `${Math.max(2, Math.round((scrapeProgress.done / scrapeProgress.total) * 100))}%` }}
+                        />
+                      ) : (
+                        <div className="h-full animate-pulse rounded-full bg-indigo-400" />
+                      )}
                     </div>
                     <p className="mt-2 text-xs text-indigo-500">Crawling pages and indexing content. This usually takes 1–2 minutes.</p>
                   </div>
