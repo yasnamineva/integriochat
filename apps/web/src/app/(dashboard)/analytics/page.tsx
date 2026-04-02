@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardHeader, CardTitle } from "@integriochat/ui";
-import { getPlanConfig } from "@/lib/plans";
+import { getPlanConfig, USAGE_MARGIN_MULTIPLIER } from "@/lib/plans";
 import type { PlanId } from "@/lib/plans";
 
 export default async function AnalyticsPage() {
@@ -22,33 +22,65 @@ export default async function AnalyticsPage() {
   startOf7DaysAgo.setDate(now.getDate() - 6);
   startOf7DaysAgo.setHours(0, 0, 0, 0);
 
-  const [subscription, chatbots, totalMessages, thisMonthMessages, lastMonthMessages] =
-    await Promise.all([
-      prisma.subscription.findFirst({
-        where: { tenantId },
-        orderBy: { createdAt: "desc" },
-        select: { plan: true },
-      }),
-      prisma.chatbot.findMany({
-        where: { tenantId },
-        select: { id: true, name: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.message.count({ where: { tenantId, role: "user" } }),
-      prisma.message.count({
-        where: { tenantId, role: "user", createdAt: { gte: startOfMonth } },
-      }),
-      prisma.message.count({
-        where: {
-          tenantId,
-          role: "user",
-          createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
-        },
-      }),
-    ]);
+  const [
+    subscription,
+    chatbots,
+    totalMessages,
+    thisMonthMessages,
+    lastMonthMessages,
+    usageThisMonth,
+    usageLastMonth,
+    usageAllTime,
+  ] = await Promise.all([
+    prisma.subscription.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+      select: { plan: true },
+    }),
+    prisma.chatbot.findMany({
+      where: { tenantId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.message.count({ where: { tenantId, role: "user" } }),
+    prisma.message.count({
+      where: { tenantId, role: "user", createdAt: { gte: startOfMonth } },
+    }),
+    prisma.message.count({
+      where: {
+        tenantId,
+        role: "user",
+        createdAt: { gte: startOfLastMonth, lte: endOfLastMonth },
+      },
+    }),
+    prisma.usageLog.aggregate({
+      where: { tenantId, createdAt: { gte: startOfMonth } },
+      _sum: { tokensUsed: true, costUsd: true },
+    }),
+    prisma.usageLog.aggregate({
+      where: { tenantId, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } },
+      _sum: { costUsd: true },
+    }),
+    prisma.usageLog.aggregate({
+      where: { tenantId },
+      _sum: { tokensUsed: true, costUsd: true },
+    }),
+  ]);
 
   const planConfig = getPlanConfig((subscription?.plan as PlanId | undefined) ?? "FREE");
   const msgLimit = planConfig.limits.messagesPerMonth;
+  const isUsagePlan = subscription?.plan === "USAGE";
+
+  // Token + cost aggregates
+  const tokensThisMonth = usageThisMonth._sum.tokensUsed ?? 0;
+  const tokensAllTime = usageAllTime._sum.tokensUsed ?? 0;
+  const rawCostThisMonth = Number(usageThisMonth._sum.costUsd ?? 0);
+  const rawCostLastMonth = Number(usageLastMonth._sum.costUsd ?? 0);
+  const rawCostAllTime = Number(usageAllTime._sum.costUsd ?? 0);
+  // Billed amount = raw AI cost × margin multiplier
+  const billedThisMonth = rawCostThisMonth * USAGE_MARGIN_MULTIPLIER;
+  const billedLastMonth = rawCostLastMonth * USAGE_MARGIN_MULTIPLIER;
+  const billedAllTime = rawCostAllTime * USAGE_MARGIN_MULTIPLIER;
 
   // Unique conversations this month (distinct sessionIds)
   const uniqueSessionsRaw = await prisma.message.groupBy({
@@ -67,6 +99,22 @@ export default async function AnalyticsPage() {
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
   });
+
+  // Per-bot token + cost breakdown (this month)
+  const perBotUsageRaw = await prisma.usageLog.groupBy({
+    by: ["chatbotId"],
+    where: { tenantId, createdAt: { gte: startOfMonth } },
+    _sum: { tokensUsed: true, costUsd: true },
+  });
+  const perBotUsageMap = Object.fromEntries(
+    perBotUsageRaw.map((r) => [
+      r.chatbotId,
+      {
+        tokens: r._sum.tokensUsed ?? 0,
+        billedUsd: Number(r._sum.costUsd ?? 0) * USAGE_MARGIN_MULTIPLIER,
+      },
+    ])
+  );
 
   // Daily message counts for the last 7 days
   const last7DaysMessages = await prisma.message.findMany({
@@ -91,6 +139,8 @@ export default async function AnalyticsPage() {
   const perBot = perBotRaw.map((row: { chatbotId: string; _count: { id: number } }) => ({
     name: botNameMap[row.chatbotId] ?? "Unknown",
     count: row._count.id,
+    tokens: perBotUsageMap[row.chatbotId]?.tokens ?? 0,
+    billedUsd: perBotUsageMap[row.chatbotId]?.billedUsd ?? 0,
   }));
 
   const momChange =
@@ -157,6 +207,80 @@ export default async function AnalyticsPage() {
           </p>
         </Card>
       </div>
+
+      {/* Token usage summary */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Tokens — This Month</CardTitle>
+          </CardHeader>
+          <p className="text-3xl font-bold text-gray-900">{tokensThisMonth.toLocaleString()}</p>
+          <p className="mt-1 text-xs text-gray-400">estimated (input + output)</p>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Tokens — All Time</CardTitle>
+          </CardHeader>
+          <p className="text-3xl font-bold text-gray-900">{tokensAllTime.toLocaleString()}</p>
+          <p className="mt-1 text-xs text-gray-400">across all chatbots</p>
+        </Card>
+
+        {isUsagePlan ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium text-gray-500">AI Cost — This Month</CardTitle>
+            </CardHeader>
+            <p className="text-3xl font-bold text-gray-900">${rawCostThisMonth.toFixed(4)}</p>
+            <p className="mt-1 text-xs text-gray-400">raw OpenAI cost (before margin)</p>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium text-gray-500">Avg Tokens / Message</CardTitle>
+            </CardHeader>
+            <p className="text-3xl font-bold text-gray-900">
+              {thisMonthMessages === 0 ? "—" : Math.round(tokensThisMonth / thisMonthMessages).toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">this month</p>
+          </Card>
+        )}
+      </div>
+
+      {/* Pay-as-you-go billing tracker */}
+      {isUsagePlan && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Billing — Pay As You Go</CardTitle>
+          </CardHeader>
+          <div className="grid gap-6 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">This Month</p>
+              <p className="mt-1 text-3xl font-bold text-gray-900">${billedThisMonth.toFixed(2)}</p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {thisMonthMessages.toLocaleString()} messages · {tokensThisMonth.toLocaleString()} tokens
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Last Month</p>
+              <p className="mt-1 text-3xl font-bold text-gray-900">${billedLastMonth.toFixed(2)}</p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {lastMonthMessages.toLocaleString()} messages
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">All Time</p>
+              <p className="mt-1 text-3xl font-bold text-gray-900">${billedAllTime.toFixed(2)}</p>
+              <p className="mt-0.5 text-xs text-gray-500">since account creation</p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-500">
+            Billed amount = raw AI cost × {USAGE_MARGIN_MULTIPLIER}× margin.
+            Raw AI cost this month: ${rawCostThisMonth.toFixed(4)}.
+            Charges are invoiced by Stripe at the end of each billing period.
+          </div>
+        </Card>
+      )}
 
       {/* Plan usage */}
       <Card>
@@ -227,32 +351,32 @@ export default async function AnalyticsPage() {
       {perBot.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Messages per Chatbot — This Month</CardTitle>
+            <CardTitle>Per Chatbot — This Month</CardTitle>
           </CardHeader>
-          <div className="flex flex-col gap-4">
-            {perBot.map(({ name, count }) => {
-              // Bar shows usage relative to the plan limit (consistent with Plan Usage card).
-              // For unlimited plans, fall back to share-of-total so bars are still meaningful.
+          <div className="flex flex-col gap-5">
+            {perBot.map(({ name, count, tokens, billedUsd }) => {
               const pct =
                 msgLimit === -1
                   ? thisMonthMessages === 0 ? 0 : Math.round((count / thisMonthMessages) * 100)
                   : Math.min(100, Math.round((count / msgLimit) * 100));
-              const label =
-                msgLimit === -1
-                  ? `${count.toLocaleString()} msg`
-                  : `${count.toLocaleString()} / ${msgLimit.toLocaleString()} (${pct}% of plan)`;
               return (
                 <div key={name} className="flex flex-col gap-1.5">
-                  <div className="flex justify-between text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
                     <span className="font-medium text-gray-700">{name}</span>
-                    <span className="text-gray-500">{label}</span>
+                    <span className="flex shrink-0 gap-3 text-xs text-gray-500">
+                      <span>{count.toLocaleString()} msg</span>
+                      <span>{tokens.toLocaleString()} tok</span>
+                      {isUsagePlan && (
+                        <span className="font-medium text-gray-700">${billedUsd.toFixed(2)}</span>
+                      )}
+                    </span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
                     <div
                       className={`h-full rounded-full transition-all ${
                         pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-400" : "bg-brand-500"
                       }`}
-                      style={{ width: `${pct}%` }}
+                      style={{ width: `${Math.max(pct, count > 0 ? 1 : 0)}%` }}
                     />
                   </div>
                 </div>
