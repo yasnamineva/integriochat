@@ -28,7 +28,6 @@ export async function GET() {
         id: true,
         name: true,
         slug: true,
-        allowedDomains: true,
         createdAt: true,
       },
     });
@@ -51,10 +50,10 @@ export async function POST(req: NextRequest) {
       return err(parsed.error.message, 422);
     }
 
-    const { name, slug, allowedDomains } = parsed.data;
+    const { name, slug } = parsed.data;
 
     const tenant = await prisma.tenant.create({
-      data: { name, slug, allowedDomains },
+      data: { name, slug },
     });
 
     return ok(tenant, 201);

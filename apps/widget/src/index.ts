@@ -1,5 +1,5 @@
 import { getWidgetHTML } from "./ui.js";
-import { fetchConfig, sendMessage } from "./api.js";
+import { fetchConfig, sendMessage, submitLead } from "./api.js";
 
 function newSessionId(): string {
   const bytes = new Uint8Array(16);
@@ -18,21 +18,36 @@ async function mountWidget(botId: string): Promise<void> {
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = getWidgetHTML(config);
 
-  const toggleBtn    = shadow.getElementById("toggle-btn") as HTMLButtonElement;
-  const chatPanel    = shadow.getElementById("chat-panel") as HTMLDivElement;
-  const messagesEl   = shadow.getElementById("messages") as HTMLDivElement;
+  const toggleBtn     = shadow.getElementById("toggle-btn") as HTMLButtonElement;
+  const chatPanel     = shadow.getElementById("chat-panel") as HTMLDivElement;
+  const messagesEl    = shadow.getElementById("messages") as HTMLDivElement;
   const suggestionsEl = shadow.getElementById("suggestions") as HTMLDivElement;
-  const userInput    = shadow.getElementById("user-input") as HTMLInputElement;
-  const sendBtn      = shadow.getElementById("send-btn") as HTMLButtonElement;
+  const userInput     = shadow.getElementById("user-input") as HTMLInputElement;
+  const sendBtn       = shadow.getElementById("send-btn") as HTMLButtonElement;
+  const leadForm      = shadow.getElementById("lead-form") as HTMLDivElement | null;
+  const chatArea      = shadow.getElementById("chat-area") as HTMLDivElement | null;
 
   const sessionId = newSessionId();
   let isOpen = false;
+  let leadCaptured = false;
 
   function togglePanel(): void {
     isOpen = !isOpen;
     chatPanel.classList.toggle("hidden", !isOpen);
     toggleBtn.setAttribute("aria-expanded", String(isOpen));
-    if (isOpen) userInput.focus();
+    if (isOpen) {
+      if (config.leadCapture && !leadCaptured && leadForm) {
+        (leadForm.querySelector<HTMLInputElement>("#lead-email"))?.focus();
+      } else {
+        userInput.focus();
+      }
+    }
+  }
+
+  function showChat(): void {
+    if (leadForm) leadForm.classList.add("hidden");
+    if (chatArea) chatArea.classList.remove("hidden");
+    userInput.focus();
   }
 
   function appendMessage(role: "user" | "assistant" | "error", text: string): HTMLDivElement {
@@ -77,6 +92,52 @@ async function mountWidget(botId: string): Promise<void> {
     sendBtn.disabled = false;
     userInput.disabled = false;
     userInput.focus();
+  }
+
+  // ── Lead capture form handling ────────────────────────────────────────────
+  if (config.leadCapture && leadForm && chatArea) {
+    chatArea.classList.add("hidden");
+
+    const leadEmailInput = leadForm.querySelector<HTMLInputElement>("#lead-email");
+    const leadNameInput  = leadForm.querySelector<HTMLInputElement>("#lead-name");
+    const leadSubmitBtn  = leadForm.querySelector<HTMLButtonElement>("#lead-submit");
+    const leadSkipBtn    = leadForm.querySelector<HTMLButtonElement>("#lead-skip");
+    const leadError      = leadForm.querySelector<HTMLElement>("#lead-error");
+
+    async function handleLeadSubmit(): Promise<void> {
+      const email = leadEmailInput?.value.trim() ?? "";
+      if (!email || !email.includes("@")) {
+        if (leadError) leadError.textContent = "Please enter a valid email address.";
+        return;
+      }
+      if (leadError) leadError.textContent = "";
+      if (leadSubmitBtn) leadSubmitBtn.disabled = true;
+
+      const result = await submitLead({
+        chatbotId: botId,
+        sessionId,
+        email,
+        name: leadNameInput?.value.trim() || undefined,
+      });
+
+      if (!result.success && leadError) {
+        leadError.textContent = result.error ?? "Something went wrong.";
+        if (leadSubmitBtn) leadSubmitBtn.disabled = false;
+        return;
+      }
+
+      leadCaptured = true;
+      showChat();
+    }
+
+    leadSubmitBtn?.addEventListener("click", () => { void handleLeadSubmit(); });
+    leadSkipBtn?.addEventListener("click", () => {
+      leadCaptured = true;
+      showChat();
+    });
+    leadEmailInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); void handleLeadSubmit(); }
+    });
   }
 
   // Wire up suggested question buttons

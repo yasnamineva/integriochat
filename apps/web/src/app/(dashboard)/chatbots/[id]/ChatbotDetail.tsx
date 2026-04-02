@@ -68,7 +68,7 @@ interface Props {
   isUsagePlan?: boolean;
 }
 
-type Tab = "settings" | "appearance" | "training" | "integration" | "preview";
+type Tab = "settings" | "appearance" | "training" | "integration" | "preview" | "leads";
 
 const AI_MODELS = [
   { value: "gpt-4o-mini", label: "GPT-4o Mini — fast & cost-efficient (recommended)" },
@@ -394,6 +394,22 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [newWHEvents, setNewWHEvents] = useState("message.completed");
   const [addingWH, setAddingWH] = useState(false);
 
+  type LeadRow = { id: string; email: string; name: string | null; phone: string | null; sessionId: string; createdAt: string };
+  const [leads, setLeads] = useState<LeadRow[]>([]);
+  const [leadsLoaded, setLeadsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === "leads" && !leadsLoaded) {
+      fetch(`/api/chatbots/${chatbot.id}/leads`)
+        .then((r) => r.json())
+        .then((d: { data?: LeadRow[] }) => {
+          if (d.data) setLeads(d.data);
+          setLeadsLoaded(true);
+        })
+        .catch(() => { setLeadsLoaded(true); });
+    }
+  }, [activeTab, leadsLoaded, chatbot.id]);
+
   useEffect(() => {
     if (activeTab === "integration" && !webhooksLoaded) {
       fetch(`/api/chatbots/${chatbot.id}/webhooks`)
@@ -448,6 +464,7 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
     { id: "appearance", label: "Appearance" },
     { id: "training", label: "Training" },
     { id: "integration", label: "Integration" },
+    { id: "leads", label: "Leads" },
     { id: "preview", label: "Preview" },
   ];
 
@@ -1279,6 +1296,52 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
               </div>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* ── Leads tab ── */}
+      {activeTab === "leads" && (
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Captured Leads</CardTitle>
+            </CardHeader>
+            {!chatbot.leadCapture && (
+              <p className="text-sm text-amber-600 mb-4">
+                Lead capture is currently disabled. Enable it in the Settings tab to start collecting leads.
+              </p>
+            )}
+            {!leadsLoaded ? (
+              <p className="text-sm text-gray-400">Loading…</p>
+            ) : leads.length === 0 ? (
+              <p className="text-sm text-gray-500">No leads captured yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-xs text-gray-500">
+                      <th className="pb-2 pr-4 font-medium">Email</th>
+                      <th className="pb-2 pr-4 font-medium">Name</th>
+                      <th className="pb-2 pr-4 font-medium">Session</th>
+                      <th className="pb-2 font-medium">Captured</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leads.map((lead) => (
+                      <tr key={lead.id} className="border-b border-gray-100">
+                        <td className="py-2 pr-4 font-mono text-xs">{lead.email}</td>
+                        <td className="py-2 pr-4 text-gray-600">{lead.name ?? "—"}</td>
+                        <td className="py-2 pr-4 font-mono text-xs text-gray-400 max-w-[120px] truncate">{lead.sessionId}</td>
+                        <td className="py-2 text-gray-500 whitespace-nowrap">
+                          {new Date(lead.createdAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         </div>
       )}
 

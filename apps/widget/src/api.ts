@@ -13,6 +13,7 @@ export interface ChatbotConfig {
   widgetTheme: string;
   initialMessage: string;
   suggestedQs: string[];
+  leadCapture: boolean;
 }
 
 export interface ChatResponse {
@@ -41,7 +42,31 @@ export async function fetchConfig(chatbotId: string): Promise<ChatbotConfig> {
     widgetTheme: "light",
     initialMessage: "Hi! How can I help you today?",
     suggestedQs: [],
+    leadCapture: false,
   };
+}
+
+/**
+ * Submits a lead (email + optional name/phone) from the chat widget.
+ */
+export async function submitLead(params: {
+  chatbotId: string;
+  sessionId: string;
+  email: string;
+  name?: string;
+  phone?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/leads`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json() as { success: boolean; error?: string };
+    return data;
+  } catch {
+    return { success: false, error: "Failed to submit lead." };
+  }
 }
 
 /**

@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
       widgetTheme: true,
       initialMessage: true,
       suggestedQs: true,
+      leadCapture: true,
     },
   });
 
@@ -40,5 +41,6 @@ export async function GET(req: NextRequest) {
     widgetTheme: chatbot.widgetTheme ?? "light",
     initialMessage: chatbot.initialMessage ?? "Hi! How can I help you today?",
     suggestedQs: chatbot.suggestedQs ?? [],
+    leadCapture: chatbot.leadCapture ?? false,
   });
 }

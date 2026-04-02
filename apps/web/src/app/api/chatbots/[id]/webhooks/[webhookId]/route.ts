@@ -16,7 +16,6 @@ const UpdateWebhookSchema = z.object({
 
 /** PATCH /api/chatbots/[id]/webhooks/[webhookId] — update a webhook */
 export async function PATCH(req: NextRequest, { params }: Params) {
-  // deploy-check-v2
   try {
     const tenantId = await requireTenantId();
 

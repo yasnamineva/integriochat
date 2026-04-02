@@ -5,7 +5,7 @@ import type { ChatbotConfig } from "./api.js";
  * Injected into the shadow root — fully isolated from the host page styles.
  */
 export function getWidgetHTML(config: ChatbotConfig): string {
-  const { themeColor, chatTitle, chatAvatar, widgetTheme, initialMessage, suggestedQs, widgetPosition } = config;
+  const { themeColor, chatTitle, chatAvatar, widgetTheme, initialMessage, suggestedQs, widgetPosition, leadCapture } = config;
   const isDark = widgetTheme === "dark";
 
   const bgPanel = isDark ? "#111827" : "#ffffff";
@@ -139,6 +139,37 @@ export function getWidgetHTML(config: ChatbotConfig): string {
   #send-btn:hover { opacity: 0.85; }
   #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  #lead-form {
+    flex: 1; display: flex; flex-direction: column;
+    padding: 20px 16px; gap: 12px; background: ${bgPanel};
+    overflow-y: auto;
+  }
+  #lead-form.hidden { display: none; }
+  #lead-form h3 { font-size: 14px; font-weight: 600; color: ${textMsg}; margin: 0; }
+  #lead-form p { font-size: 12px; color: ${isDark ? "#9ca3af" : "#6b7280"}; margin: 0; }
+  .lead-input {
+    border: 1px solid ${borderInput}; background: ${bgInput}; color: ${textMsg};
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; outline: none;
+    font-family: inherit; width: 100%;
+  }
+  .lead-input:focus { border-color: ${themeColor}; box-shadow: 0 0 0 2px ${themeColor}33; }
+  #lead-submit {
+    background: ${themeColor}; color: white; border: none;
+    border-radius: 8px; padding: 9px 14px; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: opacity 0.15s; width: 100%;
+  }
+  #lead-submit:hover { opacity: 0.85; }
+  #lead-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+  #lead-skip {
+    background: none; border: none; color: ${isDark ? "#9ca3af" : "#6b7280"};
+    font-size: 12px; cursor: pointer; text-decoration: underline;
+    padding: 0; align-self: center; font-family: inherit;
+  }
+  #lead-error { font-size: 12px; color: #dc2626; min-height: 16px; }
+
+  #chat-area { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+  #chat-area.hidden { display: none; }
+
   @media (max-width: 480px) {
     #chat-panel { right: 12px; left: 12px; bottom: 80px; width: auto; max-width: none; }
     #toggle-btn { ${isLeft ? "left: 12px;" : "right: 12px;"} bottom: 12px; }
@@ -156,17 +187,29 @@ export function getWidgetHTML(config: ChatbotConfig): string {
     ${avatarHtml}
     <span>${escapeHtml(chatTitle)}</span>
   </div>
-  <div id="messages" aria-live="polite" aria-label="Chat messages">
-    <div class="msg assistant">${escapeHtml(initialMessage)}</div>
-  </div>
-  ${suggestionsHtml ? `<div id="suggestions">${suggestionsHtml}</div>` : '<div id="suggestions" class="hidden"></div>'}
-  <div id="input-row">
-    <input
-      id="user-input" type="text"
-      placeholder="Type a message…" maxlength="2000"
-      aria-label="Message input"
-    />
-    <button id="send-btn" aria-label="Send message">Send</button>
+  ${leadCapture ? `
+  <div id="lead-form">
+    <h3>Before we chat…</h3>
+    <p>Leave your email and we'll follow up if needed.</p>
+    <input id="lead-name" class="lead-input" type="text" placeholder="Your name (optional)" maxlength="100" />
+    <input id="lead-email" class="lead-input" type="email" placeholder="Your email *" maxlength="200" required />
+    <div id="lead-error"></div>
+    <button id="lead-submit">Start chatting</button>
+    <button id="lead-skip">Skip</button>
+  </div>` : ""}
+  <div id="chat-area">
+    <div id="messages" aria-live="polite" aria-label="Chat messages">
+      <div class="msg assistant">${escapeHtml(initialMessage)}</div>
+    </div>
+    ${suggestionsHtml ? `<div id="suggestions">${suggestionsHtml}</div>` : '<div id="suggestions" class="hidden"></div>'}
+    <div id="input-row">
+      <input
+        id="user-input" type="text"
+        placeholder="Type a message…" maxlength="2000"
+        aria-label="Message input"
+      />
+      <button id="send-btn" aria-label="Send message">Send</button>
+    </div>
   </div>
 </div>
 `;

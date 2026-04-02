@@ -67,7 +67,6 @@ export const CreateTenantSchema = z.object({
     .min(2)
     .max(50)
     .regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
-  allowedDomains: z.array(z.string().url()).default([]),
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────

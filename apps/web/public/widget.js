@@ -2,7 +2,7 @@
 (() => {
   // src/ui.ts
   function getWidgetHTML(config) {
-    const { themeColor, chatTitle, chatAvatar, widgetTheme, initialMessage, suggestedQs, widgetPosition } = config;
+    const { themeColor, chatTitle, chatAvatar, widgetTheme, initialMessage, suggestedQs, widgetPosition, leadCapture } = config;
     const isDark = widgetTheme === "dark";
     const bgPanel = isDark ? "#111827" : "#ffffff";
     const bgMsg = isDark ? "#374151" : "#f3f4f6";
@@ -129,6 +129,37 @@
   #send-btn:hover { opacity: 0.85; }
   #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  #lead-form {
+    flex: 1; display: flex; flex-direction: column;
+    padding: 20px 16px; gap: 12px; background: ${bgPanel};
+    overflow-y: auto;
+  }
+  #lead-form.hidden { display: none; }
+  #lead-form h3 { font-size: 14px; font-weight: 600; color: ${textMsg}; margin: 0; }
+  #lead-form p { font-size: 12px; color: ${isDark ? "#9ca3af" : "#6b7280"}; margin: 0; }
+  .lead-input {
+    border: 1px solid ${borderInput}; background: ${bgInput}; color: ${textMsg};
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; outline: none;
+    font-family: inherit; width: 100%;
+  }
+  .lead-input:focus { border-color: ${themeColor}; box-shadow: 0 0 0 2px ${themeColor}33; }
+  #lead-submit {
+    background: ${themeColor}; color: white; border: none;
+    border-radius: 8px; padding: 9px 14px; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: opacity 0.15s; width: 100%;
+  }
+  #lead-submit:hover { opacity: 0.85; }
+  #lead-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+  #lead-skip {
+    background: none; border: none; color: ${isDark ? "#9ca3af" : "#6b7280"};
+    font-size: 12px; cursor: pointer; text-decoration: underline;
+    padding: 0; align-self: center; font-family: inherit;
+  }
+  #lead-error { font-size: 12px; color: #dc2626; min-height: 16px; }
+
+  #chat-area { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+  #chat-area.hidden { display: none; }
+
   @media (max-width: 480px) {
     #chat-panel { right: 12px; left: 12px; bottom: 80px; width: auto; max-width: none; }
     #toggle-btn { ${isLeft ? "left: 12px;" : "right: 12px;"} bottom: 12px; }
@@ -146,17 +177,29 @@
     ${avatarHtml}
     <span>${escapeHtml(chatTitle)}</span>
   </div>
-  <div id="messages" aria-live="polite" aria-label="Chat messages">
-    <div class="msg assistant">${escapeHtml(initialMessage)}</div>
-  </div>
-  ${suggestionsHtml ? `<div id="suggestions">${suggestionsHtml}</div>` : '<div id="suggestions" class="hidden"></div>'}
-  <div id="input-row">
-    <input
-      id="user-input" type="text"
-      placeholder="Type a message\u2026" maxlength="2000"
-      aria-label="Message input"
-    />
-    <button id="send-btn" aria-label="Send message">Send</button>
+  ${leadCapture ? `
+  <div id="lead-form">
+    <h3>Before we chat\u2026</h3>
+    <p>Leave your email and we'll follow up if needed.</p>
+    <input id="lead-name" class="lead-input" type="text" placeholder="Your name (optional)" maxlength="100" />
+    <input id="lead-email" class="lead-input" type="email" placeholder="Your email *" maxlength="200" required />
+    <div id="lead-error"></div>
+    <button id="lead-submit">Start chatting</button>
+    <button id="lead-skip">Skip</button>
+  </div>` : ""}
+  <div id="chat-area">
+    <div id="messages" aria-live="polite" aria-label="Chat messages">
+      <div class="msg assistant">${escapeHtml(initialMessage)}</div>
+    </div>
+    ${suggestionsHtml ? `<div id="suggestions">${suggestionsHtml}</div>` : '<div id="suggestions" class="hidden"></div>'}
+    <div id="input-row">
+      <input
+        id="user-input" type="text"
+        placeholder="Type a message\u2026" maxlength="2000"
+        aria-label="Message input"
+      />
+      <button id="send-btn" aria-label="Send message">Send</button>
+    </div>
   </div>
 </div>
 `;
@@ -184,8 +227,22 @@
       widgetPosition: "bottom-right",
       widgetTheme: "light",
       initialMessage: "Hi! How can I help you today?",
-      suggestedQs: []
+      suggestedQs: [],
+      leadCapture: false
     };
+  }
+  async function submitLead(params) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/leads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params)
+      });
+      const data = await res.json();
+      return data;
+    } catch {
+      return { success: false, error: "Failed to submit lead." };
+    }
   }
   async function sendMessage(params, onChunk) {
     var _a;
@@ -210,7 +267,10 @@
 
   // src/index.ts
   function newSessionId() {
-    return `sess_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `sess_${hex}`;
   }
   async function mountWidget(botId) {
     const config = await fetchConfig(botId);
@@ -225,13 +285,28 @@
     const suggestionsEl = shadow.getElementById("suggestions");
     const userInput = shadow.getElementById("user-input");
     const sendBtn = shadow.getElementById("send-btn");
+    const leadForm = shadow.getElementById("lead-form");
+    const chatArea = shadow.getElementById("chat-area");
     const sessionId = newSessionId();
     let isOpen = false;
+    let leadCaptured = false;
     function togglePanel() {
+      var _a;
       isOpen = !isOpen;
       chatPanel.classList.toggle("hidden", !isOpen);
       toggleBtn.setAttribute("aria-expanded", String(isOpen));
-      if (isOpen) userInput.focus();
+      if (isOpen) {
+        if (config.leadCapture && !leadCaptured && leadForm) {
+          (_a = leadForm.querySelector("#lead-email")) == null ? void 0 : _a.focus();
+        } else {
+          userInput.focus();
+        }
+      }
+    }
+    function showChat() {
+      if (leadForm) leadForm.classList.add("hidden");
+      if (chatArea) chatArea.classList.remove("hidden");
+      userInput.focus();
     }
     function appendMessage(role, text) {
       const div = document.createElement("div");
@@ -267,6 +342,50 @@
       sendBtn.disabled = false;
       userInput.disabled = false;
       userInput.focus();
+    }
+    if (config.leadCapture && leadForm && chatArea) {
+      chatArea.classList.add("hidden");
+      const leadEmailInput = leadForm.querySelector("#lead-email");
+      const leadNameInput = leadForm.querySelector("#lead-name");
+      const leadSubmitBtn = leadForm.querySelector("#lead-submit");
+      const leadSkipBtn = leadForm.querySelector("#lead-skip");
+      const leadError = leadForm.querySelector("#lead-error");
+      async function handleLeadSubmit() {
+        var _a, _b;
+        const email = (_a = leadEmailInput == null ? void 0 : leadEmailInput.value.trim()) != null ? _a : "";
+        if (!email || !email.includes("@")) {
+          if (leadError) leadError.textContent = "Please enter a valid email address.";
+          return;
+        }
+        if (leadError) leadError.textContent = "";
+        if (leadSubmitBtn) leadSubmitBtn.disabled = true;
+        const result = await submitLead({
+          chatbotId: botId,
+          sessionId,
+          email,
+          name: (leadNameInput == null ? void 0 : leadNameInput.value.trim()) || void 0
+        });
+        if (!result.success && leadError) {
+          leadError.textContent = (_b = result.error) != null ? _b : "Something went wrong.";
+          if (leadSubmitBtn) leadSubmitBtn.disabled = false;
+          return;
+        }
+        leadCaptured = true;
+        showChat();
+      }
+      leadSubmitBtn == null ? void 0 : leadSubmitBtn.addEventListener("click", () => {
+        void handleLeadSubmit();
+      });
+      leadSkipBtn == null ? void 0 : leadSkipBtn.addEventListener("click", () => {
+        leadCaptured = true;
+        showChat();
+      });
+      leadEmailInput == null ? void 0 : leadEmailInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void handleLeadSubmit();
+        }
+      });
     }
     suggestionsEl.querySelectorAll(".sq-btn").forEach((btn) => {
       btn.addEventListener("click", () => {

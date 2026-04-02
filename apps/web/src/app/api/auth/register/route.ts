@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     // Create Tenant + User + free Subscription atomically
     const user = await prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
-        data: { name: companyName, slug, allowedDomains: [] },
+        data: { name: companyName, slug },
       });
 
       await tx.subscription.create({
