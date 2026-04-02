@@ -27,7 +27,7 @@ export const CreateChatbotSchema = z.object({
   // Training
   autoRetrain: z.boolean().default(false),
   // Web search
-  webSearchEnabled: z.boolean().default(false),
+  webSearchEnabled: z.boolean().default(true),
   // Per-chatbot spending caps (USAGE plan only)
   monthlyMessageLimit: z.number().int().min(1).nullable().optional(),
   monthlySpendLimitCents: z.number().int().min(1).nullable().optional(),

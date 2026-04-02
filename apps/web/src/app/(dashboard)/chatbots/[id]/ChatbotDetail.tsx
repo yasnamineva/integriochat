@@ -192,6 +192,25 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [scrapeResult, setScrapeResult] = useState<{ pagesScraped: number; chunksIndexed: number } | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
 
+  // Poll server when a background scrape is running (auto-triggered at creation or by cron)
+  useEffect(() => {
+    if (chatbot.scrapeStatus !== "scraping" || scraping) return;
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/chatbots/${chatbot.id}`);
+        if (!res.ok) return;
+        const d = await res.json() as { data?: { scrapeStatus: string; lastScrapedAt: string | null } };
+        if (!d.data || d.data.scrapeStatus === "scraping") return;
+        setChatbot((c) => ({
+          ...c,
+          scrapeStatus: d.data!.scrapeStatus,
+          lastScrapedAt: d.data!.lastScrapedAt ? new Date(d.data!.lastScrapedAt) : null,
+        }));
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(intervalId);
+  }, [chatbot.id, chatbot.scrapeStatus, scraping]);
+
   // Custom Q&A state
   const [qas, setQas] = useState<CustomQA[]>([]);
   const [qaLoaded, setQaLoaded] = useState(false);
@@ -989,11 +1008,34 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                   <code className="flex-1 truncate rounded bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
                     {chatbot.websiteUrl}
                   </code>
-                  <Button onClick={() => { void handleScrape(); }} loading={scraping} disabled={scraping}>
-                    {chatbot.scrapeStatus === "done" ? "Re-train" : "Train Now"}
+                  <Button
+                    onClick={() => { void handleScrape(); }}
+                    loading={scraping}
+                    disabled={scraping || chatbot.scrapeStatus === "scraping"}
+                  >
+                    {chatbot.scrapeStatus === "scraping"
+                      ? "Training…"
+                      : chatbot.scrapeStatus === "done"
+                        ? "Re-train"
+                        : "Train Now"}
                   </Button>
                 </div>
-                {chatbot.lastScrapedAt && (
+                {chatbot.scrapeStatus === "scraping" && (
+                  <div className="rounded-md border border-indigo-100 bg-indigo-50 px-3 py-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <svg className="h-4 w-4 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="text-sm font-medium text-indigo-700">Training in progress…</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-indigo-100">
+                      <div className="h-full animate-pulse rounded-full bg-indigo-400" />
+                    </div>
+                    <p className="mt-2 text-xs text-indigo-500">Crawling pages and indexing content. This usually takes 1–2 minutes.</p>
+                  </div>
+                )}
+                {chatbot.lastScrapedAt && chatbot.scrapeStatus !== "scraping" && (
                   <p className="text-xs text-gray-400">
                     Last trained: {new Date(chatbot.lastScrapedAt).toLocaleString()}
                   </p>

@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       name, systemPrompt, tone, leadCapture, websiteUrl,
       aiModel, temperature, maxTokens, fallbackMsg,
       chatTitle, chatAvatar, themeColor, widgetPosition, widgetTheme,
-      initialMessage, suggestedQs, autoRetrain,
+      initialMessage, suggestedQs, autoRetrain, webSearchEnabled,
     } = parsed.data;
 
     const chatbot = await prisma.chatbot.create({
@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
         tone,
         leadCapture,
         websiteUrl: websiteUrl ?? null,
+        webSearchEnabled: webSearchEnabled ?? true,
         ...(aiModel !== undefined && { aiModel }),
         ...(temperature !== undefined && { temperature }),
         ...(maxTokens !== undefined && { maxTokens }),
