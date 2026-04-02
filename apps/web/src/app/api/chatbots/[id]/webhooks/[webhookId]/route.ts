@@ -41,7 +41,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[PATCH /api/chatbots/[id]/webhooks/[webhookId]]", e);
-    return err("Internal server error", 500);
+    const msg = e instanceof Error ? e.message : String(e);
+    return err(`Internal server error: ${msg}`, 500);
   }
 }
 
