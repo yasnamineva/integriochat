@@ -16,6 +16,7 @@ const UpdateWebhookSchema = z.object({
 
 /** PATCH /api/chatbots/[id]/webhooks/[webhookId] — update a webhook */
 export async function PATCH(req: NextRequest, { params }: Params) {
+  // deploy-check-v2
   try {
     const tenantId = await requireTenantId();
 
@@ -42,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (e instanceof Response) return e;
     console.error("[PATCH /api/chatbots/[id]/webhooks/[webhookId]]", e);
     const msg = e instanceof Error ? e.message : String(e);
-    return err(`Internal server error: ${msg}`, 500);
+    return err(`Webhook update error [v2]: ${msg}`, 500);
   }
 }
 
