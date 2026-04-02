@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
         const existing = await prisma.subscription.findFirst({ where: { tenantId } });
         if (existing) {
           await prisma.subscription.update({
-            where: { id: existing.id },
+            where: { id: existing.id, tenantId },
             data: { status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId },
           });
         } else {
@@ -148,10 +148,13 @@ export async function POST(req: NextRequest) {
         const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
         const currentPeriodEnd = new Date(sub.current_period_end * 1000);
 
-        await prisma.subscription.update({
-          where: { stripeSubscriptionId },
-          data: { status: "ACTIVE", currentPeriodEnd },
-        });
+        const paidSub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId } });
+        if (paidSub) {
+          await prisma.subscription.update({
+            where: { id: paidSub.id, tenantId: paidSub.tenantId },
+            data: { status: "ACTIVE", currentPeriodEnd },
+          });
+        }
 
         console.log(`[Stripe] invoice.paid — ${stripeSubscriptionId} renewed`);
         break;
@@ -167,10 +170,13 @@ export async function POST(req: NextRequest) {
 
         if (!stripeSubscriptionId) break;
 
-        await prisma.subscription.update({
-          where: { stripeSubscriptionId },
-          data: { status: "PAST_DUE" },
-        });
+        const failedSub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId } });
+        if (failedSub) {
+          await prisma.subscription.update({
+            where: { id: failedSub.id, tenantId: failedSub.tenantId },
+            data: { status: "PAST_DUE" },
+          });
+        }
 
         console.log(`[Stripe] invoice.payment_failed — ${stripeSubscriptionId} → PAST_DUE`);
         break;
@@ -203,7 +209,7 @@ export async function POST(req: NextRequest) {
         }
 
         await prisma.subscription.update({
-          where: { id: dbSub.id },
+          where: { id: dbSub.id, tenantId: dbSub.tenantId },
           data: {
             status,
             currentPeriodEnd,
@@ -222,10 +228,13 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
 
-        await prisma.subscription.update({
-          where: { stripeSubscriptionId: sub.id },
-          data: { status: "CANCELED", canceledAt: new Date() },
-        });
+        const canceledSub = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } });
+        if (canceledSub) {
+          await prisma.subscription.update({
+            where: { id: canceledSub.id, tenantId: canceledSub.tenantId },
+            data: { status: "CANCELED", canceledAt: new Date() },
+          });
+        }
 
         console.log(`[Stripe] customer.subscription.deleted — ${sub.id} → CANCELED`);
         break;

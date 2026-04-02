@@ -119,12 +119,12 @@ describe("POST /api/stripe/webhook", () => {
         metadata: { tenantId: "tenant-abc" },
       })
     );
-    mockPrisma.subscription.findFirst.mockResolvedValue({ id: "existing-id" });
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: "existing-id", tenantId: "tenant-abc" });
 
     const res = await POST(makeRequest());
     expect(res.status).toBe(200);
     expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "existing-id" } })
+      expect.objectContaining({ where: { id: "existing-id", tenantId: "tenant-abc" } })
     );
     expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
   });
@@ -170,12 +170,13 @@ describe("POST /api/stripe/webhook", () => {
     mockConstructEvent.mockReturnValue(
       makeEvent("invoice.paid", { id: "in_123", subscription: "sub_123" })
     );
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: "paid-sub-id", tenantId: "tenant-abc" });
 
     const res = await POST(makeRequest());
     expect(res.status).toBe(200);
     expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { stripeSubscriptionId: "sub_123" },
+        where: { id: "paid-sub-id", tenantId: "tenant-abc" },
         data: expect.objectContaining({ status: "ACTIVE" }),
       })
     );
@@ -187,12 +188,13 @@ describe("POST /api/stripe/webhook", () => {
     mockConstructEvent.mockReturnValue(
       makeEvent("invoice.payment_failed", { id: "in_fail", subscription: "sub_123" })
     );
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: "failed-sub-id", tenantId: "tenant-abc" });
 
     const res = await POST(makeRequest());
     expect(res.status).toBe(200);
     expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { stripeSubscriptionId: "sub_123" },
+        where: { id: "failed-sub-id", tenantId: "tenant-abc" },
         data: { status: "PAST_DUE" },
       })
     );
@@ -204,12 +206,13 @@ describe("POST /api/stripe/webhook", () => {
     mockConstructEvent.mockReturnValue(
       makeEvent("customer.subscription.deleted", { id: "sub_123", status: "canceled" })
     );
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: "canceled-sub-id", tenantId: "tenant-abc" });
 
     const res = await POST(makeRequest());
     expect(res.status).toBe(200);
     expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { stripeSubscriptionId: "sub_123" },
+        where: { id: "canceled-sub-id", tenantId: "tenant-abc" },
         data: expect.objectContaining({ status: "CANCELED", canceledAt: expect.any(Date) }),
       })
     );

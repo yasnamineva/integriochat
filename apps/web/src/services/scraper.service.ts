@@ -89,18 +89,18 @@ export function triggerScrapeInBackground(
   void (async () => {
     try {
       await prisma.chatbot.update({
-        where: { id: chatbotId },
+        where: { id: chatbotId, tenantId },
         data: { scrapeStatus: "scraping" },
       });
       await scrapeAndIndex(websiteUrl, chatbotId, tenantId, maxPages);
       await prisma.chatbot.update({
-        where: { id: chatbotId },
+        where: { id: chatbotId, tenantId },
         data: { scrapeStatus: "done", lastScrapedAt: new Date() },
       });
     } catch (e) {
       console.error(`[scraper] background scrape failed for chatbot ${chatbotId}:`, e);
       await prisma.chatbot.update({
-        where: { id: chatbotId },
+        where: { id: chatbotId, tenantId },
         data: { scrapeStatus: "error" },
       }).catch(() => undefined);
     }

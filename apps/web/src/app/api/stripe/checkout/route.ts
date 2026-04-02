@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       });
 
       await prisma.subscription.update({
-        where: { id: subscription.id },
+        where: { id: subscription.id, tenantId },
         data: { plan: planId, billingPeriod: annual ? "ANNUAL" : "MONTHLY", stripeItemId: itemId },
       });
 

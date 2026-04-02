@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     );
 
     const updated = await prisma.webhook.update({
-      where: { id: params.webhookId },
+      where: { id: params.webhookId, tenantId },
       data: updateData,
     });
 
