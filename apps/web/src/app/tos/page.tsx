@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LegalPageNav } from "@/components/LegalPageNav";
 
 export const metadata = {
   title: "Terms of Service — IntegrioChat",
@@ -12,14 +13,7 @@ export default function TermsOfServicePage() {
   return (
     <div className="min-h-screen bg-white">
       <header className="border-b border-gray-100 px-6 py-4">
-        <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <Link href="/" className="text-lg font-bold text-indigo-600">
-            {COMPANY}
-          </Link>
-          <Link href="/login" className="text-sm text-gray-500 hover:text-gray-700">
-            Sign in
-          </Link>
-        </div>
+        <LegalPageNav />
       </header>
 
       <main className="mx-auto max-w-3xl px-6 py-12">

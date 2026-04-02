@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 
 const STORAGE_KEY = "cookie_consent";
+const LEGAL_PAGES = ["/privacy", "/tos"];
 
 export function CookieBanner() {
   const [visible, setVisible] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     // Only show if consent has not already been recorded
@@ -14,14 +18,13 @@ export function CookieBanner() {
     if (!stored) setVisible(true);
   }, []);
 
-  function accept() {
-    localStorage.setItem(STORAGE_KEY, "accepted");
+  function dismiss(value: "accepted" | "declined") {
+    localStorage.setItem(STORAGE_KEY, value);
     setVisible(false);
-  }
-
-  function decline() {
-    localStorage.setItem(STORAGE_KEY, "declined");
-    setVisible(false);
+    // When accepting/declining from a legal page, return the user to where they came from
+    if (LEGAL_PAGES.includes(pathname)) {
+      router.back();
+    }
   }
 
   if (!visible) return null;
@@ -38,13 +41,13 @@ export function CookieBanner() {
         </p>
         <div className="flex shrink-0 gap-2">
           <button
-            onClick={decline}
+            onClick={() => dismiss("declined")}
             className="rounded-lg border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
           >
             Decline
           </button>
           <button
-            onClick={accept}
+            onClick={() => dismiss("accepted")}
             className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
           >
             Accept
