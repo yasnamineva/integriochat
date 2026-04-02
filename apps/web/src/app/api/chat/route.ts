@@ -80,17 +80,27 @@ export async function POST(req: NextRequest) {
 
     // ── CORS: validate Origin against tenant's allowed domains ───────────────
     const origin = req.headers.get("origin") ?? "";
-    const ownOrigin = process.env["NEXT_PUBLIC_BASE_URL"] ?? "http://localhost:3000";
+    // Derive own origin from request headers so the check works on any
+    // deployment URL without needing NEXT_PUBLIC_BASE_URL to be set.
+    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
+    const proto = req.headers.get("x-forwarded-proto") ?? "https";
+    const ownOrigin = host ? `${proto}://${host}` : (process.env["NEXT_PUBLIC_BASE_URL"] ?? "http://localhost:3000");
     const allowedDomains = chatbot.allowedDomains;
     const originAllowed =
-      allowedDomains.length === 0 ||
-      origin === ownOrigin ||
+      !origin ||                   // no Origin header = same-origin curl/server request
+      allowedDomains.length === 0 || // no domain restriction — allow all
+      origin === ownOrigin ||      // dashboard preview (same app)
       allowedDomains.some((d) => {
         if (d.startsWith("*.")) {
           const base = d.slice(2);
-          return origin === `https://${base}` || origin === `http://${base}` || origin.endsWith(`.${base}`);
+          try {
+            const { hostname } = new URL(origin);
+            return hostname === base || hostname.endsWith(`.${base}`);
+          } catch { return false; }
         }
-        return origin === `https://${d}` || origin === `http://${d}`;
+        try {
+          return new URL(origin).hostname === d;
+        } catch { return false; }
       });
     if (!originAllowed) {
       return err("Origin not allowed", 403);
