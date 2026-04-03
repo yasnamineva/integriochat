@@ -192,34 +192,40 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [scrapeProgress, setScrapeProgress] = useState<{ done: number; total: number } | null>(null);
   const [scrapeResult, setScrapeResult] = useState<{ pagesScraped: number; chunksIndexed: number } | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [scrapePollSeconds, setScrapePollSeconds] = useState(0);
 
-  // If the page loads with scrapeStatus already "scraping" (left over from a
-  // previous killed session), poll the server for up to 30 s. After that,
-  // treat it as stale so the user can retry — the /scrape route also accepts
-  // re-scraping over a status older than 10 minutes.
+  // If the page loads with scrapeStatus already "scraping" (e.g. user
+  // refreshed mid-scrape or the SSE connection dropped while the server was
+  // still running), poll every 5 s for up to 4 minutes.  The stale-scrape
+  // bypass in the /scrape route uses a 2-minute window, so 4 minutes is
+  // enough to either catch a completed scrape or confirm it's truly stuck.
   useEffect(() => {
     if (chatbot.scrapeStatus !== "scraping" || scraping) return;
-    const start = Date.now();
+    setScrapePollSeconds(0);
     const intervalId = setInterval(async () => {
-      if (Date.now() - start > 30_000) {
-        clearInterval(intervalId);
-        setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
-        setScrapeError("Previous training session did not complete. Click Re-train to try again.");
-        return;
-      }
+      setScrapePollSeconds((s) => s + 5);
       try {
         const res = await fetch(`/api/chatbots/${chatbot.id}`);
         if (!res.ok) return;
         const d = await res.json() as { data?: { scrapeStatus: string; lastScrapedAt: string | null } };
-        if (!d.data || d.data.scrapeStatus === "scraping") return;
-        setChatbot((c) => ({
-          ...c,
-          scrapeStatus: d.data!.scrapeStatus,
-          lastScrapedAt: d.data!.lastScrapedAt ? new Date(d.data!.lastScrapedAt) : null,
-        }));
+        if (!d.data) return;
+        if (d.data.scrapeStatus !== "scraping") {
+          clearInterval(intervalId);
+          setChatbot((c) => ({
+            ...c,
+            scrapeStatus: d.data!.scrapeStatus,
+            lastScrapedAt: d.data!.lastScrapedAt ? new Date(d.data!.lastScrapedAt) : null,
+          }));
+        }
       } catch { /* ignore */ }
     }, 5000);
-    return () => clearInterval(intervalId);
+    // Give up after 4 minutes — the function must have been killed
+    const timeoutId = setTimeout(() => {
+      clearInterval(intervalId);
+      setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
+      setScrapeError("Training did not complete in time. Click Re-train to try again.");
+    }, 4 * 60 * 1000);
+    return () => { clearInterval(intervalId); clearTimeout(timeoutId); };
   }, [chatbot.id, chatbot.scrapeStatus, scraping]);
 
   // Custom Q&A state
@@ -1119,7 +1125,11 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                       </p>
                     )}
                     {(!scrapeProgress || scrapeProgress.total === 0) && (
-                      <p className="mt-1.5 text-xs text-indigo-500">Crawling pages and indexing content…</p>
+                      <p className="mt-1.5 text-xs text-indigo-500">
+                        {scrapePollSeconds >= 60
+                          ? "Still running — large sites can take a few minutes…"
+                          : "Crawling pages and indexing content…"}
+                      </p>
                     )}
                   </div>
                 )}
