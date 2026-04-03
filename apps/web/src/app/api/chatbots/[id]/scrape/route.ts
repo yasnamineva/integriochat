@@ -56,7 +56,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
       // Allow re-scraping if the last status update is older than 10 minutes —
       // that means a previous run was killed (e.g. Vercel function timeout) and
       // never transitioned to "done" or "error".
-      const stale = Date.now() - chatbot.updatedAt.getTime() > 10 * 60 * 1000;
+      const stale = Date.now() - chatbot.updatedAt.getTime() > 2 * 60 * 1000;
       if (!stale) return err("Scraping already in progress", 409);
       // Fall through — will reset to "scraping" again below
     }

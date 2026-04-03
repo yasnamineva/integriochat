@@ -328,7 +328,6 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
     setScrapeError(null);
     setScrapeResult(null);
     setScrapeProgress(null);
-    setChatbot((c) => ({ ...c, scrapeStatus: "scraping" }));
     try {
       const res = await fetch(`/api/chatbots/${chatbot.id}/scrape`, { method: "POST" });
 
@@ -339,6 +338,9 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
         setChatbot((c) => ({ ...c, scrapeStatus: "error" }));
         return;
       }
+
+      // Server accepted the request — now show the in-progress UI
+      setChatbot((c) => ({ ...c, scrapeStatus: "scraping" }));
 
       // Read the SSE stream
       const reader = res.body.getReader();
@@ -1086,8 +1088,8 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                   </Button>
                 </div>
                 {chatbot.scrapeStatus === "scraping" && (
-                  <div className="rounded-md border border-indigo-100 bg-indigo-50 px-3 py-3">
-                    <div className="mb-2 flex items-center justify-between">
+                  <div className="rounded-md border border-indigo-100 bg-indigo-50 px-4 py-4">
+                    <div className="mb-3 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <svg className="h-4 w-4 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -1095,23 +1097,30 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                         </svg>
                         <span className="text-sm font-medium text-indigo-700">Training in progress…</span>
                       </div>
-                      {scrapeProgress && (
-                        <span className="font-mono text-xs text-indigo-600">
-                          {scrapeProgress.done} / {scrapeProgress.total} pages
+                      {scrapeProgress && scrapeProgress.total > 0 && (
+                        <span className="font-mono text-sm font-semibold text-indigo-600">
+                          {Math.round((scrapeProgress.done / scrapeProgress.total) * 100)}%
                         </span>
                       )}
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-indigo-100">
+                    <div className="h-3 w-full overflow-hidden rounded-full bg-indigo-100">
                       {scrapeProgress && scrapeProgress.total > 0 ? (
                         <div
-                          className="h-full rounded-full bg-indigo-400 transition-all duration-500 ease-out"
-                          style={{ width: `${Math.max(2, Math.round((scrapeProgress.done / scrapeProgress.total) * 100))}%` }}
+                          className="h-full rounded-full bg-indigo-500 transition-all duration-500 ease-out"
+                          style={{ width: `${Math.max(3, Math.round((scrapeProgress.done / scrapeProgress.total) * 100))}%` }}
                         />
                       ) : (
                         <div className="h-full animate-pulse rounded-full bg-indigo-400" />
                       )}
                     </div>
-                    <p className="mt-2 text-xs text-indigo-500">Crawling pages and indexing content. This usually takes 1–2 minutes.</p>
+                    {scrapeProgress && scrapeProgress.total > 0 && (
+                      <p className="mt-1.5 text-xs text-indigo-500">
+                        {scrapeProgress.done} of {scrapeProgress.total} pages crawled
+                      </p>
+                    )}
+                    {(!scrapeProgress || scrapeProgress.total === 0) && (
+                      <p className="mt-1.5 text-xs text-indigo-500">Crawling pages and indexing content…</p>
+                    )}
                   </div>
                 )}
                 {chatbot.lastScrapedAt && chatbot.scrapeStatus !== "scraping" && (
