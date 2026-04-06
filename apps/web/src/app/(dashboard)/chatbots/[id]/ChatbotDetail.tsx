@@ -194,6 +194,14 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapePollSeconds, setScrapePollSeconds] = useState(0);
 
+  // Local string state for the spend cap input so the user can type freely
+  // without each keystroke converting cents↔dollars and fighting the cursor.
+  const [spendLimitInput, setSpendLimitInput] = useState(
+    () => chatbot.monthlySpendLimitCents !== null
+      ? (chatbot.monthlySpendLimitCents / 100).toFixed(2)
+      : ""
+  );
+
   // If the page loads with scrapeStatus already "scraping" (e.g. user
   // refreshed mid-scrape or the SSE connection dropped while the server was
   // still running), poll every 5 s for up to 4 minutes.  The stale-scrape
@@ -835,14 +843,22 @@ export function ChatbotDetail({ chatbot: initial, embedSnippet, baseUrl, planFea
                     <span className="text-sm text-gray-500">$</span>
                     <input
                       id="monthlySpendLimit"
-                      type="number"
-                      min={0.01}
-                      step={1}
+                      type="text"
+                      inputMode="decimal"
                       placeholder="No limit"
-                      value={form.monthlySpendLimitCents !== null ? (form.monthlySpendLimitCents / 100).toFixed(2) : ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setField("monthlySpendLimitCents", v === "" ? null : Math.round(parseFloat(v) * 100) || null);
+                      value={spendLimitInput}
+                      onChange={(e) => setSpendLimitInput(e.target.value)}
+                      onBlur={(e) => {
+                        const v = e.target.value.trim();
+                        const parsed = parseFloat(v);
+                        if (v === "" || isNaN(parsed) || parsed <= 0) {
+                          setSpendLimitInput("");
+                          setField("monthlySpendLimitCents", null);
+                        } else {
+                          const cents = Math.round(parsed * 100);
+                          setSpendLimitInput((cents / 100).toFixed(2));
+                          setField("monthlySpendLimitCents", cents);
+                        }
                       }}
                       className="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
