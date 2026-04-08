@@ -7,6 +7,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "IntegrioChat",
   description: "AI-powered chatbots for your website",
+  verification: {
+    google: "CpPSHBjrDRCI9C9pC17-YSWtpDCuBUxzn75zCrvNniI",
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
