@@ -12,5 +12,5 @@ export function err(
   status = 400,
   headers?: Record<string, string>
 ): NextResponse<ApiResponse<never>> {
-  return NextResponse.json({ success: false, error: message }, { status, headers });
+  return NextResponse.json({ success: false, error: message }, { status, ...(headers && { headers }) });
 }
