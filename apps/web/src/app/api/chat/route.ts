@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const body: unknown = await req.json();
     const parsed = ChatMessageSchema.safeParse(body);
     if (!parsed.success) {
-      return err(parsed.error.message, 422);
+      return err(parsed.error.message, 422, { "Access-Control-Allow-Origin": "*" });
     }
 
     const { chatbotId, sessionId, message } = parsed.data;
@@ -47,14 +47,14 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    if (!chatbot) return err("Chatbot not found", 404);
+    if (!chatbot) return err("Chatbot not found", 404, { "Access-Control-Allow-Origin": "*" });
 
     const subscription = chatbot.tenant.subscriptions[0];
     if (
       !subscription ||
       (subscription.status !== "ACTIVE" && subscription.status !== "TRIALING")
     ) {
-      return err("Subscription inactive", 403);
+      return err("Subscription inactive", 403, { "Access-Control-Allow-Origin": "*" });
     }
 
     // ── Plan-level limit check ────────────────────────────────────────────────
@@ -63,7 +63,8 @@ export async function POST(req: NextRequest) {
       return err(
         `Monthly message limit reached (${limitCheck.used.toLocaleString()} / ${limitCheck.limit.toLocaleString()}). ` +
           "Upgrade your plan to continue.",
-        429
+        429,
+        { "Access-Control-Allow-Origin": "*" }
       );
     }
 
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
       monthlySpendLimitCents: chatbot.monthlySpendLimitCents,
     });
     if (!chatbotLimitCheck.allowed) {
-      return err(chatbotLimitCheck.reason ?? "Chatbot limit reached", 429);
+      return err(chatbotLimitCheck.reason ?? "Chatbot limit reached", 429, { "Access-Control-Allow-Origin": "*" });
     }
 
     // ── CORS: validate Origin against tenant's allowed domains ───────────────
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
         } catch { return false; }
       });
     if (!originAllowed) {
-      return err("Origin not allowed", 403);
+      return err("Origin not allowed", 403, { "Access-Control-Allow-Origin": "*" });
     }
 
     // ── Log user message ─────────────────────────────────────────────────────
@@ -358,7 +359,10 @@ export async function POST(req: NextRequest) {
       });
 
       return new Response(stream, {
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+        },
       });
     }
 
@@ -404,11 +408,14 @@ export async function POST(req: NextRequest) {
     });
 
     return new Response(stream, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+      },
     });
   } catch (e) {
     console.error("[POST /api/chat]", e);
-    return err("Internal server error", 500);
+    return err("Internal server error", 500, { "Access-Control-Allow-Origin": "*" });
   }
 }
 

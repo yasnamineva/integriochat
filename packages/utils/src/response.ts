@@ -9,7 +9,8 @@ export function ok<T>(data: T, status = 200): NextResponse<ApiResponse<T>> {
 /** Returns an error JSON response: `{ success: false, error }` */
 export function err(
   message: string,
-  status = 400
+  status = 400,
+  headers?: Record<string, string>
 ): NextResponse<ApiResponse<never>> {
-  return NextResponse.json({ success: false, error: message }, { status });
+  return NextResponse.json({ success: false, error: message }, { status, headers });
 }
