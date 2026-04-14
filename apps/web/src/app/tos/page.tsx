@@ -7,7 +7,7 @@ export const metadata = {
 
 const EFFECTIVE_DATE = "January 1, 2025";
 const COMPANY = "IntegrioChat";
-const CONTACT_EMAIL = "hello@integriochat.com";
+const CONTACT_EMAIL = "support@integriochat.com";
 
 export default function TermsOfServicePage() {
   return (
