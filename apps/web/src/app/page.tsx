@@ -385,13 +385,12 @@ export default async function HomePage() {
       {/* ── Footer ── */}
       <footer className="border-t border-gray-100 py-8">
         <div className="flex flex-col items-center gap-2">
-          <div className="flex gap-4 text-xs text-gray-400">
-            <Link href="/tos" className="hover:text-gray-600 hover:underline">
-              Terms of Service
-            </Link>
-            <Link href="/privacy" className="hover:text-gray-600 hover:underline">
-              Privacy Policy
-            </Link>
+          <div className="flex flex-wrap justify-center gap-4 text-xs text-gray-400">
+            <Link href="/tos" className="hover:text-gray-600 hover:underline">Terms of Service</Link>
+            <Link href="/privacy" className="hover:text-gray-600 hover:underline">Privacy Policy</Link>
+            <Link href="/cookie" className="hover:text-gray-600 hover:underline">Cookie Policy</Link>
+            <Link href="/refund" className="hover:text-gray-600 hover:underline">Refund Policy</Link>
+            <Link href="/aup" className="hover:text-gray-600 hover:underline">Acceptable Use</Link>
           </div>
           <p className="text-xs text-gray-400">
             © {new Date().getFullYear()} IntegrioChat. All rights reserved.
