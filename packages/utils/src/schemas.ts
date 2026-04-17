@@ -10,7 +10,7 @@ export const CreateChatbotSchema = z.object({
   systemPrompt: z.string().min(1).max(4000).default("You are a helpful assistant."),
   tone: z.enum(["professional", "friendly", "casual", "formal"]).default("professional"),
   leadCapture: z.boolean().default(false),
-  websiteUrl: z.string().url().optional().nullable(),
+  websiteUrl: z.string().url(),
   // AI settings
   aiModel: z.enum(AI_MODELS).default("gpt-4o-mini"),
   temperature: z.number().min(0).max(2).default(0.7),

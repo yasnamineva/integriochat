@@ -10,7 +10,7 @@ import {
 // ─── CreateChatbotSchema ──────────────────────────────────────────────────────
 
 describe("CreateChatbotSchema", () => {
-  const valid = { name: "My Bot", systemPrompt: "Be helpful." };
+  const valid = { name: "My Bot", systemPrompt: "Be helpful.", websiteUrl: "https://example.com" };
 
   test("accepts valid minimal input", () => {
     expect(CreateChatbotSchema.safeParse(valid).success).toBe(true);

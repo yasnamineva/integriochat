@@ -63,7 +63,7 @@ export default function NewChatbotPage() {
       ...(systemPromptRaw ? { systemPrompt: systemPromptRaw } : {}),
       ...(fallbackMsgRaw ? { fallbackMsg: fallbackMsgRaw } : {}),
       ...(initialMessageRaw ? { initialMessage: initialMessageRaw } : {}),
-      ...(websiteUrlRaw ? { websiteUrl: websiteUrlRaw } : {}),
+      websiteUrl: websiteUrlRaw,
       tone: form.get("tone") as string,
       aiModel: form.get("aiModel") as string,
       temperature,
@@ -251,13 +251,13 @@ export default function NewChatbotPage() {
             <div>
               <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
                 Website URL
-                <InfoTip text="We'll crawl this URL and train your chatbot on the text content found across your site. The bot will be able to answer questions based on your website. Leave empty to skip website training — you can add this later." />
-                <span className="ml-2 text-xs font-normal text-gray-400">optional</span>
+                <InfoTip text="We'll crawl this URL and train your chatbot on the text content found across your site. The bot will be able to answer questions based on your website." />
               </label>
               <input
                 name="websiteUrl"
                 type="url"
                 placeholder="https://yourcompany.com"
+                required
                 className={inputCls}
               />
             </div>
