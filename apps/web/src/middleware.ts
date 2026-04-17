@@ -25,23 +25,28 @@ export async function middleware(req: NextRequest) {
   // ── Rate limit POST /api/chat (public endpoint) ───────────────────────────
   if (pathname === "/api/chat") {
     if (ratelimit) {
-      const ip =
-        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
-      const { success, limit, remaining, reset } = await ratelimit.limit(ip);
+      try {
+        const ip =
+          req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
+        const { success, limit, remaining, reset } = await ratelimit.limit(ip);
 
-      if (!success) {
-        return new NextResponse(
-          JSON.stringify({ success: false, error: "Too many requests — slow down." }),
-          {
-            status: 429,
-            headers: {
-              "Content-Type": "application/json",
-              "X-RateLimit-Limit": String(limit),
-              "X-RateLimit-Remaining": String(remaining),
-              "X-RateLimit-Reset": String(reset),
-            },
-          }
-        );
+        if (!success) {
+          return new NextResponse(
+            JSON.stringify({ success: false, error: "Too many requests — slow down." }),
+            {
+              status: 429,
+              headers: {
+                "Content-Type": "application/json",
+                "X-RateLimit-Limit": String(limit),
+                "X-RateLimit-Remaining": String(remaining),
+                "X-RateLimit-Reset": String(reset),
+              },
+            }
+          );
+        }
+      } catch (e) {
+        // Upstash unreachable — fail open so chat still works
+        console.error("[middleware] Upstash rate limit error:", e);
       }
     }
     return NextResponse.next();
