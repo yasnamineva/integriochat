@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getPlanConfig, USAGE_MARGIN_MULTIPLIER } from "@/lib/plans";
 import type { PlanId } from "@/lib/plans";
 
+
 /** Start of the current calendar month (UTC midnight on day 1). */
 function startOfCurrentMonth(): Date {
   const d = new Date();
@@ -90,6 +91,34 @@ export async function checkChatbotLimits(chatbot: {
     }
   }
 
+  return { allowed: true };
+}
+
+/**
+ * Check the tenant-level monthly spending cap for USAGE plan subscriptions.
+ * Aggregates raw AI cost across all chatbots for the current calendar month,
+ * applies the billing margin, and blocks further usage once the cap is hit.
+ */
+export async function checkTenantSpendCap(
+  tenantId: string,
+  usageCapCents: number | null
+): Promise<ChatbotLimitCheck> {
+  if (usageCapCents === null) return { allowed: true };
+
+  const result = await prisma.usageLog.aggregate({
+    where: { tenantId, createdAt: { gte: startOfCurrentMonth() } },
+    _sum: { costUsd: true },
+  });
+  const rawCostUsd = Number(result._sum.costUsd ?? 0);
+  const billedCents = Math.ceil(rawCostUsd * USAGE_MARGIN_MULTIPLIER * 100);
+
+  if (billedCents >= usageCapCents) {
+    const limitDollars = (usageCapCents / 100).toFixed(2);
+    return {
+      allowed: false,
+      reason: `Monthly spending cap of $${limitDollars} reached. Please contact support to increase your limit.`,
+    };
+  }
   return { allowed: true };
 }
 

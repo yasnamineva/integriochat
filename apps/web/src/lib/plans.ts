@@ -3,10 +3,11 @@
  *
  * Chatbase-equivalent plan structure (monthly / annual pricing):
  *   FREE     — $0            — 100 msg/mo,    1 bot,  1 seat
- *   HOBBY    — $40  / $32    — 2 000 msg/mo,  2 bots, 1 seat
- *   STANDARD — $150 / $120   — 12 000 msg/mo, 5 bots, 3 seats  ← most popular
- *   PRO      — $500 / $400   — 40 000 msg/mo, 10 bots, 5 seats
+ *   HOBBY    — $40  / $32    — 2 000 msg/mo,  2 bots, 1 seat  ($0.020/msg)
+ *   STANDARD — $150 / $120   — 12 000 msg/mo, 5 bots, 3 seats  ← most popular ($0.0125/msg)
+ *   PRO      — $500 / $400   — 40 000 msg/mo, 10 bots, 5 seats ($0.0125/msg)
  *   ENTERPRISE — custom      — unlimited
+ *   USAGE    — metered       — $0.010/msg, 20% cheaper than STANDARD; $50/mo default cap
  *
  * Stripe setup (test mode):
  *   Create one Product per paid plan with TWO prices each (monthly + annual).
@@ -79,7 +80,10 @@ export interface PlanConfig {
 export const USAGE_MARGIN_MULTIPLIER = 20;
 
 /** Published per-message rate for the USAGE plan (USD per AI response). */
-export const USAGE_BILLED_PER_MESSAGE = 0.005; // $0.005 per message = $5 per 1,000 messages
+export const USAGE_BILLED_PER_MESSAGE = 0.010; // $0.01 per message = $10 per 1,000 messages
+
+/** Default monthly billing cap (cents) applied to new USAGE plan subscriptions. */
+export const USAGE_DEFAULT_MONTHLY_CAP_CENTS = 5_000; // $50/month default
 
 export const PLANS: Record<PlanId, PlanConfig> = {
   USAGE: {
@@ -105,7 +109,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     },
     featureList: [
       "Unlimited chatbots",
-      "Pay per token — no monthly commitment",
+      "$0.01 per response — no monthly commitment",
+      "$50/month default spend cap (adjustable)",
       "Set per-chatbot message & spend caps",
       "All AI models",
       "Remove \"Powered by\" branding",

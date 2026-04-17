@@ -6,7 +6,7 @@ import { err } from "@integriochat/utils";
 import { ChatMessageSchema } from "@integriochat/utils";
 import { retrieveContext } from "@/services/embedding.service";
 import { webSearch } from "@/services/search.service";
-import { checkMessageLimit, checkChatbotLimits, reportMessageUsage, logUsage } from "@/services/usage.service";
+import { checkMessageLimit, checkChatbotLimits, checkTenantSpendCap, reportMessageUsage, logUsage } from "@/services/usage.service";
 import { dispatchWebhookEvent } from "@/services/webhook.service";
 
 /**
@@ -77,6 +77,17 @@ export async function POST(req: NextRequest) {
     });
     if (!chatbotLimitCheck.allowed) {
       return err(chatbotLimitCheck.reason ?? "Chatbot limit reached", 429, { "Access-Control-Allow-Origin": "*" });
+    }
+
+    // ── Tenant-level monthly spend cap (USAGE plan) ───────────────────────────
+    if (subscription.plan === "USAGE") {
+      const spendCapCheck = await checkTenantSpendCap(
+        chatbot.tenantId,
+        subscription.usageCapCents ?? null
+      );
+      if (!spendCapCheck.allowed) {
+        return err(spendCapCheck.reason ?? "Monthly spending cap reached", 429, { "Access-Control-Allow-Origin": "*" });
+      }
     }
 
     // ── CORS: validate Origin against tenant's allowed domains ───────────────

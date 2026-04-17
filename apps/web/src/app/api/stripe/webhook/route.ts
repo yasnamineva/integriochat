@@ -2,7 +2,7 @@ import { type NextRequest } from "next/server";
 import Stripe from "stripe";
 import { prisma } from "@/lib/db";
 import type { SubscriptionStatus, Plan } from "@integriochat/db";
-import { PLANS } from "@/lib/plans";
+import { PLANS, USAGE_DEFAULT_MONTHLY_CAP_CENTS } from "@/lib/plans";
 
 /**
  * Reverse-map a Stripe price ID to our internal Plan enum by scanning all
@@ -118,16 +118,22 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Upsert: update the existing seed/dev subscription or create a new one
+        // New USAGE subscriptions get the default monthly spending cap.
+        // Existing USAGE subs keep their current cap (don't overwrite on re-checkout).
         const existing = await prisma.subscription.findFirst({ where: { tenantId } });
+        const usageCapCents =
+          plan === "USAGE" && (existing?.usageCapCents == null)
+            ? USAGE_DEFAULT_MONTHLY_CAP_CENTS
+            : existing?.usageCapCents ?? null;
+
         if (existing) {
           await prisma.subscription.update({
             where: { id: existing.id, tenantId },
-            data: { status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId },
+            data: { status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId, usageCapCents },
           });
         } else {
           await prisma.subscription.create({
-            data: { tenantId, status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId },
+            data: { tenantId, status, stripeCustomerId, stripeSubscriptionId, trialEndsAt, currentPeriodEnd, plan, billingPeriod, stripeItemId, stripeUsageItemId, usageCapCents },
           });
         }
 
